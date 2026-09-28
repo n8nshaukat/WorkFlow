@@ -12,7 +12,7 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) before hand-editing any template-literal copy in `app.js`.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 37, matches the in-app build tag).
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 38, matches the in-app build tag).
 
 **A source snapshot also lives in this repo at `mockup/`** (added this session for external review without touching claude.ai's own sharing) — it's the same 5 files as the live artifact and is now the working copy edits are made to before publishing; re-sync by copying the artifact's files back in if the two ever drift.
 
@@ -47,7 +47,9 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 
 **Light/Dark/System theme toggle** — a button next to the WorkFlow logo, cycles the three states the CSS already supported (it just had no UI control before), remembered per-device via `localStorage`.
 
-**Explicitly deferred, not forgotten:** the app should start on a clean slate by default (no seeded Galoc demo project) once this goes live — user asked to keep today's seed-data default as-is for now, since it's still useful for testing, and will have me clear it right before launch.
+**Clean-slate default — done (v38), superseding the "leave it for now" note from earlier this session.** The user changed direction and asked for it now: `loadState()` defaults to one empty project (`BLANK_PROJECTS` in `data.js`) instead of the Galoc demo. `SEED_PROJECTS`/`SEED_RES`/etc. still exist purely as what a new "↺ Load demo data" sidebar button restores on request (two-click confirm, since it overwrites current data) — that button itself is a candidate to remove before real launch, not yet decided.
+
+**Also fixed, from user feedback on v37/v38 screenshots:** `.chip.ok` was referenced in the toolbar JS (POB tracking / Columns buttons) but never defined in CSS, so those two controls had no background or border in either theme — most visible in dark mode. New-project/new-task Name field placeholders no longer reference demo-specific examples. `#importPastePane` relied on a negative inline margin for spacing; replaced with a real flex gap to remove the overlap risk structurally rather than re-tune the number.
 
 ---
 
@@ -75,7 +77,7 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 ## Known Real, Not-Yet-Built Gaps
 
 Asked about or scoped, deliberately deferred:
-- **Clean-slate default boot state** — start with no seeded demo project once live; explicitly kept as-is (Galoc demo loads by default) for now, at the user's request, since it's still useful for testing. Clear this before launch, not before.
+- **Whether "Load demo data" survives to real launch** — added in v38 as a convenience for continued testing now that the app boots blank by default; may or may not want to keep it once live.
 - **Drag-to-reorder tasks within a phase** — user wants press-and-hold-drag on a task's row label to manually resequence it (separate from the drag-to-group grip). Scoped (visual-only, snaps back to date order on next render/edit — confirmed with the user) but not built.
 - **Predecessor-column import** (e.g., Primavera's `12FS+2d` syntax) — no real document with this column yet; deferred per LL-006.
 - **Per-project custom phases** — the importer's phase-guessing maps into a fixed 6-item global `PHASES` list (`data.js`); a real schedule has far more groupings of its own. Real product question, not a mockup polish item — WBS grouping covers *some* of this need already, worth revisiting whether it's now sufficient before building custom phases too.
@@ -125,14 +127,14 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 - **2026-09-22 (first session):** Long mockup-build day — initial Gantt/Resources mockup → full CRUD, drag-based direct manipulation, Network/CPM tab, POB tracking, personnel transfers, shift patterns, Guide tab → bundled-db persistence → import/export/print → full project lifecycle. See LL-001–LL-005.
 - **2026-09-22 (second session):** PDF/WBS-table importer built from scratch against a real document; ten rounds of live-tested Gantt/drawer UX fixes; coworker-sharing and architecture-direction questions substantively resolved. See LL-006–LL-009. Mockup at v29.
 - **2026-09-26:** WBS grouping designed as a standalone prototype first, approved, then built into the real Gantt across three rounds as live testing on the user's own schedule surfaced gaps (phase-as-group-target, then the WBS-aware importer). See "WBS Grouping" above and LL-010. Mockup at v35.
-- **2026-09-28:** Source snapshot checked into this repo (`mockup/`) for external review. Real PDF-import crash found via a live stack trace and fixed (LL-011). Resource-aware import (name-matching + review step, multi-source) and a Light/Dark/System theme toggle built. Mockup now at v37.
+- **2026-09-28:** Source snapshot checked into this repo (`mockup/`) for external review. Real PDF-import crash found via a live stack trace and fixed (LL-011). Resource-aware import (name-matching + review step, multi-source) and a Light/Dark/System theme toggle built. Mockup at v37.
+- **2026-09-29:** Blank-by-default boot state (demo now opt-in via a sidebar button); dark-mode chip contrast bug fixed; demo-example placeholders genericized; import-modal spacing hardened. Mockup now at v38.
 
 ---
 
 ## Next Steps
 
-1. User-tests v37 against their real schedule — confirm the PDF import no longer crashes, try the new resource matching (column, same-file sheet, and separate resource file), and try the theme toggle. Report back whatever breaks with real evidence (console output, exact repro) — recurring pattern this project: guessing at a fix without a real stack trace burns rounds, a real repro resolves it in one.
+1. User-tests v38 against their real schedule — confirm the PDF import completes end-to-end now (the console log from the previous attempt showed only browser-extension/platform noise, no actual app error, which is a good sign but not yet a confirmed fix), check the toolbar chips and import modal in dark mode, and try "Load demo data".
 2. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
 3. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
 4. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
-5. Before launch: clear the seeded demo data so the app boots clean by default (see "Known Real, Not-Yet-Built Gaps").
