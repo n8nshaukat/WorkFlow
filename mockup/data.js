@@ -103,7 +103,17 @@ const SEED_PROJECTS = [
   {id:'tanjung', name:'Tanjung Riser Replacement', status:'On Hold', statusClass:'hold-status', tasks:[], transfers:[]},
 ];
 
+/* The real default: a genuinely empty starting point, not the demo above.
+   SEED_* stays around purely as what "Load demo data" (sidebar) restores on
+   request — this is the pre-launch to-do that flips which one loadState()
+   reaches for by default; see LIVING_PROJECT_STATE.md. */
+const BLANK_PROJECTS = [
+  {id:'p1', name:'My Project', status:'Planning', statusClass:'planning-status', tasks:[], transfers:[]},
+];
+const BLANK_RES = {};
+const BLANK_POB_CAP = 50;
+
 /* Live, mutable bindings — populated at boot by loadState() in app.js,
    either from the artifact's own bundled db (persists standalone) or,
-   when that capability isn't available in this view, from the seed data above. */
+   when that capability isn't available in this view, from BLANK_* above. */
 let PROJECTS, RES, SHIFTS, POB_CAP;

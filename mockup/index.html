@@ -10,6 +10,7 @@
       <h2>Projects</h2>
       <div class="proj-list" id="projList"></div>
       <button class="btn ghost small" id="newProjBtn" style="width:100%; margin-top:6px;">+ New project</button>
+      <button class="btn ghost small" id="loadDemoBtn" style="width:100%; margin-top:6px;" title="Replaces everything with the sample Galoc decommissioning schedule — for trying the app out, not for real use">↺ Load demo data</button>
     </div>
     <div class="side-section hide-mobile legend">
       <h2>Status key</h2>
@@ -139,7 +140,7 @@
   <div class="modal">
     <div class="modal-head"><h3 id="taskModalTitle">New task</h3><button class="icon-btn" id="taskModalClose">✕</button></div>
     <div class="modal-body">
-      <div class="field-group"><label class="flabel">Name</label><input type="text" id="ntName" placeholder="e.g. Rig down cement spread"></div>
+      <div class="field-group"><label class="flabel">Name</label><input type="text" id="ntName" placeholder="Task name"></div>
       <div class="checkbox-row"><input type="checkbox" id="ntIsMilestone"><label for="ntIsMilestone">This is a milestone (zero duration)</label></div>
       <div class="field-group"><label class="flabel">Phase</label><select id="ntPhase"></select></div>
       <div class="field-row">
@@ -177,7 +178,7 @@
   <div class="modal">
     <div class="modal-head"><h3 id="projModalTitle">New project</h3><button class="icon-btn" id="projModalClose">✕</button></div>
     <div class="modal-body">
-      <div class="field-group"><label class="flabel">Name</label><input type="text" id="pjName" placeholder="e.g. Tanjung Riser Replacement"></div>
+      <div class="field-group"><label class="flabel">Name</label><input type="text" id="pjName" placeholder="Project name"></div>
       <div class="field-group">
         <label class="flabel">Status</label>
         <select id="pjStatus">
@@ -259,10 +260,10 @@
 
       <div id="importPastePane" style="display:none;">
         <div class="field-group"><label class="flabel">Upload a PDF</label><input type="file" id="importPdfFile" accept=".pdf,application/pdf"></div>
-        <div class="dep-note" style="margin-top:-6px; margin-bottom:10px;">Text is extracted in your browser and parsed automatically — nothing is uploaded anywhere. Scanned/image-only PDFs have no selectable text to extract; you'll be told if that happens.</div>
+        <div class="dep-note">Text is extracted in your browser and parsed automatically — nothing is uploaded anywhere. Scanned/image-only PDFs have no selectable text to extract; you'll be told if that happens.</div>
         <div class="field-group"><label class="flabel">…or paste text</label><textarea id="importPasteText" style="min-height:120px;" placeholder="Select and copy the task list/table out of your PDF, then paste it here — a full MS Project or Primavera schedule export works, not just short excerpts."></textarea></div>
         <button class="btn primary small" id="importInterpretBtn">✨ Parse pasted text</button>
-        <div class="dep-note" id="importPasteStatus" style="margin-top:8px;">Upload a PDF directly, or paste text copied from one. A recognized MS Project / Primavera schedule table (WBS, Duration, Start, Finish columns) is parsed directly — no AI, no size limit, works on the full document. Anything else is sent to Claude (this artifact's own "ask Claude" capability, billed to your account, asks permission the first time) to interpret. Scanned/image-only PDFs have no selectable text — you'll be told if that happens; run one through OCR or a PDF-to-Excel tool first, then use the Excel tab instead.</div>
+        <div class="dep-note" id="importPasteStatus">Upload a PDF directly, or paste text copied from one. A recognized MS Project / Primavera schedule table (WBS, Duration, Start, Finish columns) is parsed directly — no AI, no size limit, works on the full document. Anything else is sent to Claude (this artifact's own "ask Claude" capability, billed to your account, asks permission the first time) to interpret. Scanned/image-only PDFs have no selectable text — you'll be told if that happens; run one through OCR or a PDF-to-Excel tool first, then use the Excel tab instead.</div>
       </div>
 
       <div class="field-group" id="importResFilePane">

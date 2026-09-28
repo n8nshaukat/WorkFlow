@@ -1,11 +1,11 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v37 · 2026-09-28';
+const BUILD_INFO='v38 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
-const state={projectId:'galoc', tab:'gantt', zoom:'week', collapsed:new Set(), selectedId:null, editingResId:null, pendingResources:[], pendingPreds:[], newTaskRes:[], showPOB:true, editingXferId:null, xfManifest:[], visibleCols:new Set(),
+const state={projectId:'p1', tab:'gantt', zoom:'week', collapsed:new Set(), selectedId:null, editingResId:null, pendingResources:[], pendingPreds:[], newTaskRes:[], showPOB:true, editingXferId:null, xfManifest:[], visibleCols:new Set(),
   multiSel:new Set(), creatingGroup:false, moveMenuOpen:false, renamingGroupId:null};
 
 /* ---------- WBS grouping (summary tasks) ----------
@@ -214,20 +214,20 @@ function statusClassFor(status){
 async function loadState(){
   DB=await getDb();
   if(!DB){
-    PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP;
+    PROJECTS=BLANK_PROJECTS.map(p=>({...p})); RES={...BLANK_RES}; SHIFTS=SEED_SHIFTS.map(s=>({...s})); POB_CAP=BLANK_POB_CAP;
   } else {
     try{
       const cfgSnap=await DB.doc('config/main').get();
       const cfg=cfgSnap.exists?cfgSnap.data():{};
-      RES=cfg.resources||SEED_RES; SHIFTS=cfg.shifts||SEED_SHIFTS;
-      POB_CAP=(typeof cfg.pobCap==='number')?cfg.pobCap:SEED_POB_CAP;
+      RES=cfg.resources||{...BLANK_RES}; SHIFTS=cfg.shifts||SEED_SHIFTS.map(s=>({...s}));
+      POB_CAP=(typeof cfg.pobCap==='number')?cfg.pobCap:BLANK_POB_CAP;
 
       const idxSnap=await DB.doc('config/projects').get();
-      const ids=(idxSnap.exists && Array.isArray(idxSnap.data().ids) && idxSnap.data().ids.length) ? idxSnap.data().ids : SEED_PROJECTS.map(p=>p.id);
+      const ids=(idxSnap.exists && Array.isArray(idxSnap.data().ids) && idxSnap.data().ids.length) ? idxSnap.data().ids : BLANK_PROJECTS.map(p=>p.id);
 
       PROJECTS=[];
       for(const id of ids){
-        const sp=SEED_PROJECTS.find(p=>p.id===id);
+        const sp=BLANK_PROJECTS.find(p=>p.id===id) || SEED_PROJECTS.find(p=>p.id===id);
         const snap=await DB.doc('projects/'+id).get();
         if(snap.exists){
           const d=snap.data();
@@ -237,9 +237,9 @@ async function loadState(){
           PROJECTS.push({...sp});
         }
       }
-      if(!PROJECTS.length) PROJECTS=SEED_PROJECTS.map(p=>({...p}));
+      if(!PROJECTS.length) PROJECTS=BLANK_PROJECTS.map(p=>({...p}));
     } catch(e){
-      DB=null; PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP;
+      DB=null; PROJECTS=BLANK_PROJECTS.map(p=>({...p})); RES={...BLANK_RES}; SHIFTS=SEED_SHIFTS.map(s=>({...s})); POB_CAP=BLANK_POB_CAP;
     }
   }
   // Was an early `return` inside the `if(!DB)` branch above, which skipped this exact
@@ -1601,6 +1601,17 @@ function openProjModal(id){
   byId('projModalScrim').classList.add('open');
 }
 byId('newProjBtn').onclick=()=>openProjModal(null);
+let loadDemoArm=false;
+byId('loadDemoBtn').onclick=()=>{
+  if(!loadDemoArm){ loadDemoArm=true; byId('loadDemoBtn').textContent='Replace everything with demo data?'; setTimeout(()=>{ loadDemoArm=false; byId('loadDemoBtn').textContent='↺ Load demo data'; },3000); return; }
+  loadDemoArm=false; byId('loadDemoBtn').textContent='↺ Load demo data';
+  PROJECTS=SEED_PROJECTS.map(p=>({...p}));
+  RES={...SEED_RES}; SHIFTS=SEED_SHIFTS.map(s=>({...s})); POB_CAP=SEED_POB_CAP;
+  state.projectId=PROJECTS[0].id; state.selectedId=null;
+  persistConfig(); persistProjectIndex(); PROJECTS.forEach(persistProject);
+  renderAll();
+  showToast('✓ Demo data loaded — this app starts empty by default; this button was for trying it out.');
+};
 byId('projModalClose').onclick=()=>byId('projModalScrim').classList.remove('open');
 byId('pjCancel').onclick=()=>byId('projModalScrim').classList.remove('open');
 byId('projModalScrim').onclick=(e)=>{ if(e.target.id==='projModalScrim') byId('projModalScrim').classList.remove('open'); };
