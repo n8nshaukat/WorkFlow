@@ -1,6 +1,6 @@
 # WORKFLOW - LIVING PROJECT STATE
-**Version:** 0.6
-**Last Updated:** 2026-09-28
+**Version:** 0.7
+**Last Updated:** 2026-09-29
 **Auto-Update:** Every session close
 
 ---
@@ -9,21 +9,19 @@
 
 **Read this file first.** Then, only if you need deeper context:
 - `docs/PROJECT_SPEC.md` §3 (MVP scope) — the mockup covers it, plus more (Network/CPM, POB, transfers, shifts, WBS grouping weren't in the original spec draft — see "Scope Grown Beyond Spec" below).
-- `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) before hand-editing any template-literal copy in `app.js`.
+- `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) and LL-012 (a CSS class referenced only in JS, never defined) before hand-editing `app.js`/`style.css` together.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 39, matches the in-app build tag).
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 39, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
 
-**Known unresolved: the "sample" (AI-interpret) capability is stuck declined for the user's own account/browser on this artifact** — `sample.json(...)` throws `not_granted` every time, with no permission prompt appearing on retry (confirmed: reloaded and retried, still declined). This is a platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` can fix it directly. Affects: the AI-interpret fallback for unstructured pasted text, and (now, as of v39) the AI fallback for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without this capability at all. If this resolves itself or the user finds a fix, remove this note.
-
-**A source snapshot also lives in this repo at `mockup/`** (added this session for external review without touching claude.ai's own sharing) — it's the same 5 files as the live artifact and is now the working copy edits are made to before publishing; re-sync by copying the artifact's files back in if the two ever drift.
+**Known unresolved: the "sample" (AI-interpret) capability is stuck declined** for the user's own account/browser on this artifact — `sample.json(...)` throws `not_granted` every time, no permission prompt on retry (confirmed: reloaded, retried, still declined). Platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` fixes it directly. Affects the AI-interpret fallback for unstructured pasted text and for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without it. Remove this note once resolved.
 
 **Immediate next actions, in order:**
-1. User-test v37 — confirms the PDF-import crash fix (see "Fixed This Session" below) and the new resource-matching + theme toggle features, none of which have been exercised in a live browser by anyone but the user.
-2. Share the mockup with coworkers via **email invite** (not the bare public link — see "Sharing with Coworkers" below) so they can start using it and giving feedback.
-3. **Resolve the open distribution/architecture decision** (below) before starting real Supabase/Netlify work.
-4. Build the reorder-by-drag feature if/when it becomes a priority (scoped, not built — see below).
-5. Before going live: flip the default boot state from the Galoc demo/seed data to a genuinely empty project — explicitly deferred this session at the user's request, not forgotten. See "Known Real, Not-Yet-Built Gaps."
+1. User-test v39 against the real schedule PDF and the manning-list PDF — confirm the crash fix holds end-to-end and the new deterministic resource-file parsing actually picks up real names/counts.
+2. The user's actual schedule PDF turned out to be a **Gantt/timeline-view export** (task names + repeating date columns), not the WBS/Duration/Start/Finish table format the deterministic parser handles — it correctly falls through to AI-interpret today, which is blocked by the stuck permission above. Waiting on the full extracted text (not just a preview) before building a dedicated parser for this format — see LL-006's own discipline on this.
+3. Share the mockup with coworkers via **email invite** (not the bare public link — see "Sharing with Coworkers" below).
+4. **Resolve the open distribution/architecture decision** (below) before starting real Supabase/Netlify work.
+5. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
 
 ---
 
@@ -41,17 +39,14 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 
 ---
 
-## Fixed This Session (2026-09-28)
+## Recently Fixed (2026-09-28 → 09-29, v35 → v39)
 
-**A real crash, found via an actual browser stack trace, not a guess** — see LL-011 for the full writeup. `loadState()` had an early `return` (in the "db capability unavailable" branch) that skipped its own end-of-function safety check for a mismatched `state.projectId`, so `project()` could return `undefined` and crash `renderAll()` on the very next render — which is why the user's PDF import appeared to parse but never reached the review table. Fixed at both ends: the safety check now runs regardless of which branch loadState takes, and `project()` itself self-heals (falls back to the first project) as a second line of defense.
-
-**Resource-aware import.** Previously, an Excel Resource column was just text-dumped into Notes — never a real assignment — and only the first sheet of a workbook was ever read. Now: a resource column, a same-workbook resource sheet, or a wholly separate resource file (new optional upload in the import modal) are all name-matched against the roster. Obvious matches (exact, case-insensitive) go straight through; anything ambiguous surfaces in a small "resources found" panel for a one-time decision (match to existing, or create new) before the final import — deliberately not silent/fuzzy-auto-matched, per direct instruction. New resources get created in the roster at commit time.
-
-**Light/Dark/System theme toggle** — a button next to the WorkFlow logo, cycles the three states the CSS already supported (it just had no UI control before), remembered per-device via `localStorage`.
-
-**Clean-slate default — done (v38), superseding the "leave it for now" note from earlier this session.** The user changed direction and asked for it now: `loadState()` defaults to one empty project (`BLANK_PROJECTS` in `data.js`) instead of the Galoc demo. `SEED_PROJECTS`/`SEED_RES`/etc. still exist purely as what a new "↺ Load demo data" sidebar button restores on request (two-click confirm, since it overwrites current data) — that button itself is a candidate to remove before real launch, not yet decided.
-
-**Also fixed, from user feedback on v37/v38 screenshots:** `.chip.ok` was referenced in the toolbar JS (POB tracking / Columns buttons) but never defined in CSS, so those two controls had no background or border in either theme — most visible in dark mode. New-project/new-task Name field placeholders no longer reference demo-specific examples. `#importPastePane` relied on a negative inline margin for spacing; replaced with a real flex gap to remove the overlap risk structurally rather than re-tune the number.
+- **Real PDF-import crash** (LL-011): `loadState()`'s early `return` on the "db unavailable" branch skipped its own safety-net check for a mismatched `state.projectId` → `project()` could return `undefined` → crashed `renderAll()`. Fixed at both ends (the check now always runs; `project()` self-heals too).
+- **Resource-aware import**: a Resource column, a same-workbook resource sheet, or a separate resource file (Excel/CSV **or PDF**, as of v39) all get name-matched against the roster — clear matches go straight through, ambiguous ones get a one-time review step, roster-only entries (not linked to any task) are an opt-in checklist. A resource-file PDF tries a deterministic "Name … count" pattern first, only falls back to AI if that finds nothing (relevant given the stuck-permission issue above).
+- **Light/Dark/System theme toggle**, remembered via `localStorage`.
+- **Clean-slate default boot** (v38) — one empty project by default, demo restorable via "↺ Load demo data."
+- **Dark-mode chip contrast** (LL-012): `.chip.ok` was referenced in JS, never defined in CSS.
+- Demo-specific placeholder text genericized; `#importPastePane` layout hardened (real flex gap, no more negative-margin hack).
 
 ---
 
@@ -69,7 +64,7 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 - **Import** — WorkFlow JSON backup; Excel/CSV (auto-matched columns, optional leftover-column capture, Start/End/Duration consistency flags, real resource name-matching — see below); a from-scratch deterministic parser for MS Project/Primavera-style WBS-table PDFs (upload the PDF directly, or paste extracted text) — no AI call, no size limit, handles day-first dates and WBS hierarchy correctly, and now rebuilds the source's own summary/group structure (see "WBS Grouping" below); falls back to an AI-interpret path for genuinely unstructured paste text.
 - **Export/Print** — `.json` round-trip, `.csv`, native browser print with a dedicated print stylesheet.
 - **WBS grouping** — summary tasks, expand/collapse, multi-select/indent/drag-drop to group, phase headers double as a grouping target too. See dedicated section below.
-- **Resource matching on import** — a Resource column, a same-workbook resource sheet, or a separate resource file all get name-matched against the roster, with a review step for anything ambiguous. See "Fixed This Session" below.
+- **Resource matching on import** — a Resource column, a same-workbook resource sheet, or a separate resource file (Excel/CSV or PDF) all get name-matched against the roster, with a review step for anything ambiguous. See "Recently Fixed" below.
 - **Light/Dark/System theme toggle** — sidebar button, remembered per-device.
 
 **Critical rule reversed this session (2026-09-22, first pass):** `CLAUDE.md`'s original "click-to-edit, not drag-to-resize" rule (carried forward from SAL Operations without ever being decided for WorkFlow) is gone. Direct manipulation is now the intended interaction model; every drag/edit writes a dated history entry, nothing silently overwritten. See LL-003.
@@ -130,13 +125,14 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 - **2026-09-22 (second session):** PDF/WBS-table importer built from scratch against a real document; ten rounds of live-tested Gantt/drawer UX fixes; coworker-sharing and architecture-direction questions substantively resolved. See LL-006–LL-009. Mockup at v29.
 - **2026-09-26:** WBS grouping designed as a standalone prototype first, approved, then built into the real Gantt across three rounds as live testing on the user's own schedule surfaced gaps (phase-as-group-target, then the WBS-aware importer). See "WBS Grouping" above and LL-010. Mockup at v35.
 - **2026-09-28:** Source snapshot checked into this repo (`mockup/`) for external review. Real PDF-import crash found via a live stack trace and fixed (LL-011). Resource-aware import (name-matching + review step, multi-source) and a Light/Dark/System theme toggle built. Mockup at v37.
-- **2026-09-29:** Blank-by-default boot state (demo now opt-in via a sidebar button); dark-mode chip contrast bug fixed; demo-example placeholders genericized; import-modal spacing hardened. Mockup now at v38.
+- **2026-09-29:** Blank-by-default boot state (demo now opt-in via a sidebar button); dark-mode chip contrast bug fixed (LL-012); demo-example placeholders genericized; import-modal spacing hardened (v38). Diagnosed the PDF-import complaint down to two separate, real causes: the user's schedule PDF is a Gantt/timeline-view export the deterministic parser correctly doesn't match (needs AI-interpret, or a dedicated parser once a full text sample is available), and the AI/"sample" capability is stuck declined in the user's browser. Added PDF support (deterministic pattern + AI fallback) to the resource-file import either way, plus roster-only opt-in additions (v39).
 
 ---
 
 ## Next Steps
 
-1. User-tests v38 against their real schedule — confirm the PDF import completes end-to-end now (the console log from the previous attempt showed only browser-extension/platform noise, no actual app error, which is a good sign but not yet a confirmed fix), check the toolbar chips and import modal in dark mode, and try "Load demo data".
-2. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
-3. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
-4. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
+1. User-tests v39 — confirm the manning-list PDF now parses via the resource file input, and report back on the stuck AI-permission issue (browser site-settings / incognito / different browser worth trying).
+2. If/when the full extracted text of the Gantt-view schedule PDF is available, build a dedicated deterministic parser for it rather than depending on the stuck AI path.
+3. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
+4. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
+5. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
