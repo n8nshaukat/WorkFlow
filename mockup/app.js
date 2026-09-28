@@ -1,7 +1,7 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v34 · 2026-09-26';
+const BUILD_INFO='v37 · 2026-09-28';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
@@ -213,32 +213,39 @@ function statusClassFor(status){
 }
 async function loadState(){
   DB=await getDb();
-  if(!DB){ PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP; return; }
-  try{
-    const cfgSnap=await DB.doc('config/main').get();
-    const cfg=cfgSnap.exists?cfgSnap.data():{};
-    RES=cfg.resources||SEED_RES; SHIFTS=cfg.shifts||SEED_SHIFTS;
-    POB_CAP=(typeof cfg.pobCap==='number')?cfg.pobCap:SEED_POB_CAP;
+  if(!DB){
+    PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP;
+  } else {
+    try{
+      const cfgSnap=await DB.doc('config/main').get();
+      const cfg=cfgSnap.exists?cfgSnap.data():{};
+      RES=cfg.resources||SEED_RES; SHIFTS=cfg.shifts||SEED_SHIFTS;
+      POB_CAP=(typeof cfg.pobCap==='number')?cfg.pobCap:SEED_POB_CAP;
 
-    const idxSnap=await DB.doc('config/projects').get();
-    const ids=(idxSnap.exists && Array.isArray(idxSnap.data().ids) && idxSnap.data().ids.length) ? idxSnap.data().ids : SEED_PROJECTS.map(p=>p.id);
+      const idxSnap=await DB.doc('config/projects').get();
+      const ids=(idxSnap.exists && Array.isArray(idxSnap.data().ids) && idxSnap.data().ids.length) ? idxSnap.data().ids : SEED_PROJECTS.map(p=>p.id);
 
-    PROJECTS=[];
-    for(const id of ids){
-      const sp=SEED_PROJECTS.find(p=>p.id===id);
-      const snap=await DB.doc('projects/'+id).get();
-      if(snap.exists){
-        const d=snap.data();
-        const name=d.name||(sp?sp.name:id), status=d.status||(sp?sp.status:'Active');
-        PROJECTS.push({id, name, status, statusClass:d.statusClass||statusClassFor(status), tasks:deserializeTasks(d.tasks), transfers:deserializeTransfers(d.transfers)});
-      } else if(sp){
-        PROJECTS.push({...sp});
+      PROJECTS=[];
+      for(const id of ids){
+        const sp=SEED_PROJECTS.find(p=>p.id===id);
+        const snap=await DB.doc('projects/'+id).get();
+        if(snap.exists){
+          const d=snap.data();
+          const name=d.name||(sp?sp.name:id), status=d.status||(sp?sp.status:'Active');
+          PROJECTS.push({id, name, status, statusClass:d.statusClass||statusClassFor(status), tasks:deserializeTasks(d.tasks), transfers:deserializeTransfers(d.transfers)});
+        } else if(sp){
+          PROJECTS.push({...sp});
+        }
       }
+      if(!PROJECTS.length) PROJECTS=SEED_PROJECTS.map(p=>({...p}));
+    } catch(e){
+      DB=null; PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP;
     }
-    if(!PROJECTS.length) PROJECTS=SEED_PROJECTS.map(p=>({...p}));
-  } catch(e){
-    DB=null; PROJECTS=SEED_PROJECTS.map(p=>({...p})); RES=SEED_RES; SHIFTS=SEED_SHIFTS; POB_CAP=SEED_POB_CAP;
   }
+  // Was an early `return` inside the `if(!DB)` branch above, which skipped this exact
+  // check — the one real path found (via a live stack trace) that could leave state.projectId
+  // pointing at nothing, so project() returned undefined and crashed renderAll() on the very
+  // next render (in renderPobBanner → leafTasks). Now every branch above falls through to here.
   if(!PROJECTS.find(p=>p.id===state.projectId)) state.projectId=PROJECTS[0].id;
 }
 function persistProject(proj){
@@ -315,7 +322,16 @@ function importSnapshot(obj){
 }
 
 function byId(id){return document.getElementById(id);}
-function project(){return PROJECTS.find(p=>p.id===state.projectId);}
+/* Self-heals rather than ever returning undefined: PROJECTS can never be empty (the last
+   project can't be deleted — see pjDelete), so if state.projectId ever drifts from it
+   (the loadState() early-return bug fixed above was one real way that happened), fall
+   back to the first project and correct state on the spot instead of letting every
+   caller's proj.tasks / proj.transfers access crash. */
+function project(){
+  let p=PROJECTS.find(x=>x.id===state.projectId);
+  if(!p && PROJECTS.length){ state.projectId=PROJECTS[0].id; p=PROJECTS[0]; }
+  return p;
+}
 function rangeOf(proj){
   const real=leafTasks(proj);
   if(!real.length) return {start:TODAY-5, end:TODAY+25};
@@ -1347,10 +1363,12 @@ function renderGuide(){
       ${ref('📐','A recognized MS Project/Primavera table also rebuilds groups','If the pasted text has WBS/Duration/Start/Finish columns, its own summary rows (e.g. WBS 3.2.1 sitting above 3.2.1.1, 3.2.1.2…) become real summary tasks here too, not just a phase guess — the schedule’s own outline reappears as groups, ready to expand/collapse.')}
       ${ref('📤','Export','Full workspace as .json (round-trips with Import), or the current project’s tasks as .csv for Excel/Sheets.')}
       ${ref('🖨️','Print / PDF','Uses your browser’s print dialog for scaling and page selection. If the toolbar button does nothing, your browser’s own Print command (Ctrl/Cmd+P) does the same job.')}
+      ${ref('👥','Resources get matched, not just noted','A Resource column, a resource sheet in the same file, or a separate resource file (all three work) get name-matched against your roster — clear matches go straight through, anything ambiguous gets a one-time check before you confirm the import.')}
     </div>
     <h2>How the tool behaves</h2>
     <div class="guide-note">‎<b>Status</b> vs. <b>% complete</b> are two different fields on purpose. Status is where a task sits in the process (Upcoming, In progress, Weather hold, Flagged critical, Complete) and drives the bar's colour. % complete is a finer number, shown as a fill bar only while status is "In progress" — Complete and Upcoming set it automatically (100 / 0) so the two can't disagree.</div>
     <div class="guide-note" style="margin-top:10px;">Resource overallocation and the vessel-wide POB cap both flag when demand exceeds capacity — a chip, a badge, or a banner — but nothing here prevents you from saving anyway. The tool tells you about a conflict; it doesn't decide for you.</div>
+    <div class="guide-note" style="margin-top:10px;">The ◐ button beside the WorkFlow logo cycles Light / Dark / System theme, remembered on this device.</div>
   `;
 }
 
@@ -1734,4 +1752,28 @@ byId('expJson').onclick=()=>{ byId('exportModalScrim').classList.remove('open');
 byId('expCsv').onclick=()=>{ byId('exportModalScrim').classList.remove('open'); doExportCSV(); };
 byId('expPrint').onclick=()=>{ byId('exportModalScrim').classList.remove('open'); window.print(); };
 byId('buildInfo').textContent=BUILD_INFO;
+
+/* ---------- theme toggle: System → Light → Dark, remembered per-viewer ----------
+   The CSS already defines all three states (bare :root, the dark media query, and
+   :root[data-theme]) — this just drives which one applies. Runs before loadState()
+   so the right theme is in place from first paint, not after an async round-trip. */
+const THEME_ICONS={system:'◐', light:'☀', dark:'☾'};
+const THEME_LABELS={system:'System', light:'Light', dark:'Dark'};
+function getStoredTheme(){ try{ return localStorage.getItem('workflow_theme'); }catch(e){ return null; } }
+function setStoredTheme(v){ try{ if(v) localStorage.setItem('workflow_theme', v); else localStorage.removeItem('workflow_theme'); }catch(e){} }
+function applyTheme(mode){
+  if(mode==='light'||mode==='dark') document.documentElement.setAttribute('data-theme',mode);
+  else document.documentElement.removeAttribute('data-theme');
+  const btn=byId('themeToggle');
+  btn.textContent=THEME_ICONS[mode]||THEME_ICONS.system;
+  btn.title='Theme: '+(THEME_LABELS[mode]||THEME_LABELS.system)+' — click to change';
+}
+let themeMode=getStoredTheme()||'system';
+applyTheme(themeMode);
+byId('themeToggle').onclick=()=>{
+  themeMode = themeMode==='system' ? 'light' : themeMode==='light' ? 'dark' : 'system';
+  setStoredTheme(themeMode==='system'?null:themeMode);
+  applyTheme(themeMode);
+};
+
 loadState().then(renderAll);

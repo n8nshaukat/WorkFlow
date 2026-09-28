@@ -1,6 +1,6 @@
 # WORKFLOW - LIVING PROJECT STATE
-**Version:** 0.5
-**Last Updated:** 2026-09-26
+**Version:** 0.6
+**Last Updated:** 2026-09-28
 **Auto-Update:** Every session close
 
 ---
@@ -9,16 +9,19 @@
 
 **Read this file first.** Then, only if you need deeper context:
 - `docs/PROJECT_SPEC.md` §3 (MVP scope) — the mockup covers it, plus more (Network/CPM, POB, transfers, shifts, WBS grouping weren't in the original spec draft — see "Scope Grown Beyond Spec" below).
-- `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) before touching drag/CSS-positioning code or anything mutating `db`-loaded data; LL-010 (apostrophe-breaks-JS-string) before hand-editing any template-literal copy in `app.js`.
+- `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) before hand-editing any template-literal copy in `app.js`.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 35 — the in-app build tag in the sidebar footer reads "v34", one behind; it's a hand-bumped label, not authoritative, harmless to leave a version behind).
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 37, matches the in-app build tag).
+
+**A source snapshot also lives in this repo at `mockup/`** (added this session for external review without touching claude.ai's own sharing) — it's the same 5 files as the live artifact and is now the working copy edits are made to before publishing; re-sync by copying the artifact's files back in if the two ever drift.
 
 **Immediate next actions, in order:**
-1. User-test v35 — WBS grouping (including phase-as-group-target and the WBS-aware importer) is now wired into the real Gantt, but hasn't been exercised in a live browser by anyone but the user.
+1. User-test v37 — confirms the PDF-import crash fix (see "Fixed This Session" below) and the new resource-matching + theme toggle features, none of which have been exercised in a live browser by anyone but the user.
 2. Share the mockup with coworkers via **email invite** (not the bare public link — see "Sharing with Coworkers" below) so they can start using it and giving feedback.
 3. **Resolve the open distribution/architecture decision** (below) before starting real Supabase/Netlify work.
 4. Build the reorder-by-drag feature if/when it becomes a priority (scoped, not built — see below).
+5. Before going live: flip the default boot state from the Galoc demo/seed data to a genuinely empty project — explicitly deferred this session at the user's request, not forgotten. See "Known Real, Not-Yet-Built Gaps."
 
 ---
 
@@ -36,6 +39,18 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 
 ---
 
+## Fixed This Session (2026-09-28)
+
+**A real crash, found via an actual browser stack trace, not a guess** — see LL-011 for the full writeup. `loadState()` had an early `return` (in the "db capability unavailable" branch) that skipped its own end-of-function safety check for a mismatched `state.projectId`, so `project()` could return `undefined` and crash `renderAll()` on the very next render — which is why the user's PDF import appeared to parse but never reached the review table. Fixed at both ends: the safety check now runs regardless of which branch loadState takes, and `project()` itself self-heals (falls back to the first project) as a second line of defense.
+
+**Resource-aware import.** Previously, an Excel Resource column was just text-dumped into Notes — never a real assignment — and only the first sheet of a workbook was ever read. Now: a resource column, a same-workbook resource sheet, or a wholly separate resource file (new optional upload in the import modal) are all name-matched against the roster. Obvious matches (exact, case-insensitive) go straight through; anything ambiguous surfaces in a small "resources found" panel for a one-time decision (match to existing, or create new) before the final import — deliberately not silent/fuzzy-auto-matched, per direct instruction. New resources get created in the roster at commit time.
+
+**Light/Dark/System theme toggle** — a button next to the WorkFlow logo, cycles the three states the CSS already supported (it just had no UI control before), remembered per-device via `localStorage`.
+
+**Explicitly deferred, not forgotten:** the app should start on a clean slate by default (no seeded Galoc demo project) once this goes live — user asked to keep today's seed-data default as-is for now, since it's still useful for testing, and will have me clear it right before launch.
+
+---
+
 ## Current Status
 
 **Overall Progress:** Still 0% real app code (no Vite/React/Supabase work started). The interactive mockup, however, is now extremely deep — far beyond a static prototype. Full CRUD, its own persistence, real import (including a from-scratch PDF/WBS-table parser), and a long list of live-tested UX fixes. Treat it as a high-fidelity, clickable spec, not throwaway.
@@ -47,9 +62,11 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 - **Guide tab** — in-app onboarding flow.
 - **Projects** — full lifecycle (create/rename/status/delete), not fixed to seed data.
 - **Persistence** — the artifact's own bundled `db` capability (shared JSON doc store, no external backend). See "Sharing with Coworkers" below for what this means and doesn't mean for multi-user use.
-- **Import** — WorkFlow JSON backup; Excel/CSV (auto-matched columns, optional leftover-column capture, Start/End/Duration consistency flags); a from-scratch deterministic parser for MS Project/Primavera-style WBS-table PDFs (upload the PDF directly, or paste extracted text) — no AI call, no size limit, handles day-first dates and WBS hierarchy correctly, and now rebuilds the source's own summary/group structure (see "WBS Grouping" below); falls back to an AI-interpret path for genuinely unstructured paste text.
+- **Import** — WorkFlow JSON backup; Excel/CSV (auto-matched columns, optional leftover-column capture, Start/End/Duration consistency flags, real resource name-matching — see below); a from-scratch deterministic parser for MS Project/Primavera-style WBS-table PDFs (upload the PDF directly, or paste extracted text) — no AI call, no size limit, handles day-first dates and WBS hierarchy correctly, and now rebuilds the source's own summary/group structure (see "WBS Grouping" below); falls back to an AI-interpret path for genuinely unstructured paste text.
 - **Export/Print** — `.json` round-trip, `.csv`, native browser print with a dedicated print stylesheet.
 - **WBS grouping** — summary tasks, expand/collapse, multi-select/indent/drag-drop to group, phase headers double as a grouping target too. See dedicated section below.
+- **Resource matching on import** — a Resource column, a same-workbook resource sheet, or a separate resource file all get name-matched against the roster, with a review step for anything ambiguous. See "Fixed This Session" below.
+- **Light/Dark/System theme toggle** — sidebar button, remembered per-device.
 
 **Critical rule reversed this session (2026-09-22, first pass):** `CLAUDE.md`'s original "click-to-edit, not drag-to-resize" rule (carried forward from SAL Operations without ever being decided for WorkFlow) is gone. Direct manipulation is now the intended interaction model; every drag/edit writes a dated history entry, nothing silently overwritten. See LL-003.
 
@@ -58,10 +75,12 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 ## Known Real, Not-Yet-Built Gaps
 
 Asked about or scoped, deliberately deferred:
-- **Drag-to-reorder tasks within a phase** — user wants press-and-hold-drag on a task's row label to manually resequence it (separate from the drag-to-group grip added this session). Scoped (visual-only, snaps back to date order on next render/edit — confirmed with the user) but not built.
+- **Clean-slate default boot state** — start with no seeded demo project once live; explicitly kept as-is (Galoc demo loads by default) for now, at the user's request, since it's still useful for testing. Clear this before launch, not before.
+- **Drag-to-reorder tasks within a phase** — user wants press-and-hold-drag on a task's row label to manually resequence it (separate from the drag-to-group grip). Scoped (visual-only, snaps back to date order on next render/edit — confirmed with the user) but not built.
 - **Predecessor-column import** (e.g., Primavera's `12FS+2d` syntax) — no real document with this column yet; deferred per LL-006.
-- **Per-project custom phases** — the importer's phase-guessing maps into a fixed 6-item global `PHASES` list (`data.js`); a real schedule has far more groupings of its own. Real product question, not a mockup polish item — WBS grouping (this session) covers *some* of this need already, worth revisiting whether it's now sufficient before building custom phases too.
+- **Per-project custom phases** — the importer's phase-guessing maps into a fixed 6-item global `PHASES` list (`data.js`); a real schedule has far more groupings of its own. Real product question, not a mockup polish item — WBS grouping covers *some* of this need already, worth revisiting whether it's now sufficient before building custom phases too.
 - **Bar color: status vs. phase-driven** — asked directly, user confirmed: keep the current status-driven fill. Settled, don't revisit without new input.
+- **PDF/WBS-table resource import** — the deterministic parser still doesn't capture a resource column (no real Primavera PDF sample with one seen yet, so nothing built rather than guessing the format — same discipline as LL-006). Works today via the separate optional resource-file upload alongside a PDF/paste import instead.
 
 ---
 
@@ -105,13 +124,15 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 - **2026-09-21:** Design discussion session — confirmed mockup-first approach. No code written.
 - **2026-09-22 (first session):** Long mockup-build day — initial Gantt/Resources mockup → full CRUD, drag-based direct manipulation, Network/CPM tab, POB tracking, personnel transfers, shift patterns, Guide tab → bundled-db persistence → import/export/print → full project lifecycle. See LL-001–LL-005.
 - **2026-09-22 (second session):** PDF/WBS-table importer built from scratch against a real document; ten rounds of live-tested Gantt/drawer UX fixes; coworker-sharing and architecture-direction questions substantively resolved. See LL-006–LL-009. Mockup at v29.
-- **2026-09-26:** WBS grouping designed as a standalone prototype first, approved, then built into the real Gantt across three rounds as live testing on the user's own schedule surfaced gaps (phase-as-group-target, then the WBS-aware importer). See "WBS Grouping" above and LL-010 (a real bug this session: an unescaped apostrophe in a hand-edited JS string literal, caught by `node --check` before publishing). Mockup now at v35.
+- **2026-09-26:** WBS grouping designed as a standalone prototype first, approved, then built into the real Gantt across three rounds as live testing on the user's own schedule surfaced gaps (phase-as-group-target, then the WBS-aware importer). See "WBS Grouping" above and LL-010. Mockup at v35.
+- **2026-09-28:** Source snapshot checked into this repo (`mockup/`) for external review. Real PDF-import crash found via a live stack trace and fixed (LL-011). Resource-aware import (name-matching + review step, multi-source) and a Light/Dark/System theme toggle built. Mockup now at v37.
 
 ---
 
 ## Next Steps
 
-1. User-tests v35 against their real schedule — try the WBS-table PDF/paste re-import to confirm groups now come back matching the source, and exercise indent/drag/move-to-phase on real data. Report back whatever breaks with real evidence (console output, exact repro) — recurring pattern this project: guessing at a fix without a real stack trace burns rounds, a real repro resolves it in one.
+1. User-tests v37 against their real schedule — confirm the PDF import no longer crashes, try the new resource matching (column, same-file sheet, and separate resource file), and try the theme toggle. Report back whatever breaks with real evidence (console output, exact repro) — recurring pattern this project: guessing at a fix without a real stack trace burns rounds, a real repro resolves it in one.
 2. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
 3. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
 4. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
+5. Before launch: clear the seeded demo data so the app boots clean by default (see "Known Real, Not-Yet-Built Gaps").

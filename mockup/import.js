@@ -52,10 +52,13 @@ function openImportModal(){
   stagedRows = [];
   resetJsonPreview();
   setExtraFieldDefs([]);
+  resetResourceMatching(); renderResMatchTable();
+  byId('importResFile').value='';
   byId('importSourceSeg').querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.src==='excel'));
   byId('importJsonPane').style.display='none';
   byId('importExcelPane').style.display='block';
   byId('importPastePane').style.display='none';
+  byId('importResFilePane').style.display='block';
   byId('importExcelStatus').textContent = `Adds tasks to "${project().name}". The first sheet's header row is auto-matched to Name / Start / End / Duration / Phase / Status / Resource / Notes — review and edit everything before importing.`;
   byId('importPasteText').value='';
   byId('importPdfFile').value='';
@@ -72,8 +75,9 @@ byId('importSourceSeg').addEventListener('click', e=>{
   byId('importJsonPane').style.display = src==='json' ? 'block' : 'none';
   byId('importExcelPane').style.display = src==='excel' ? 'block' : 'none';
   byId('importPastePane').style.display = src==='paste' ? 'block' : 'none';
+  byId('importResFilePane').style.display = src==='json' ? 'none' : 'block';
   byId('importPdfFile').value='';
-  stagedRows=[]; resetJsonPreview(); setExtraFieldDefs([]); renderReviewTable();
+  stagedRows=[]; resetJsonPreview(); setExtraFieldDefs([]); resetResourceMatching(); byId('importResFile').value=''; renderResMatchTable(); renderReviewTable();
 });
 byId('importModalClose').onclick=closeImportModal;
 byId('importCancel').onclick=closeImportModal;
@@ -121,6 +125,27 @@ byId('importConfirm').onclick=()=>{
   }
   const proj=project();
   const toAdd=stagedRows.filter(r=>r.include);
+  // Every resource name across the batch was already resolved (automatically, or by the
+  // user in the matching panel) into resourceResolutions — create any brand-new resources
+  // once here, then every row just looks up the key it needs.
+  const newResKeys={};
+  let newResCount=0;
+  Object.entries(resourceResolutions).forEach(([lower,res])=>{
+    if(res.action!=='new') return;
+    const existingKey=Object.keys(RES).find(k=>RES[k].name.toLowerCase()===lower);
+    if(existingKey){ newResKeys[lower]=existingKey; return; } // created by an earlier row's resolution this same commit, or matches something added since
+    const key=uid('res');
+    RES[key]={name:res.name, cap:res.cap||1, shift:res.shift||'day'};
+    newResKeys[lower]=key; newResCount++;
+  });
+  if(newResCount) persistConfig();
+  function resolveTaskResources(namesRaw){
+    return (namesRaw||[]).map(name=>{
+      const lower=name.toLowerCase(), res=resourceResolutions[lower];
+      const key = res && res.action==='existing' ? res.key : newResKeys[lower];
+      return key ? [key,1] : null;
+    }).filter(Boolean);
+  }
   // Rows carrying a subGroupWbs came from the PDF/WBS-table parser, which now keeps the
   // source's own intermediate summary rows instead of discarding them — one new group task
   // per unique (phase, source WBS parent) pair, shared by every row under it.
@@ -139,7 +164,7 @@ byId('importConfirm').onclick=()=>{
     }
     proj.tasks.push({
       id: uid('t'), phase: r.phaseId, name: (r.name||'').trim()||'Untitled task',
-      start: r.start, end: Math.max(r.end, r.start+1), resources: [], preds: [],
+      start: r.start, end: Math.max(r.end, r.start+1), resources: resolveTaskResources(r._resourceNamesRaw), preds: [],
       status: r.status||'upcoming', pct: 0, notes: r.notes||'', parent: parentId,
       wbsRef: (r._extra && r._extra['WBS code']) || undefined,
       sourceDuration: (r._extra && r._extra['Source duration text']) || undefined,
@@ -150,7 +175,9 @@ byId('importConfirm').onclick=()=>{
   closeImportModal();
   renderAll();
   const groupCount=Object.keys(groupIds).length;
-  showToast(`✓ Imported ${toAdd.length} task${toAdd.length===1?'':'s'} into ${proj.name}.`+(groupCount?` Grouped into ${groupCount} summary task${groupCount===1?'':'s'} from the source WBS.`:''));
+  showToast(`✓ Imported ${toAdd.length} task${toAdd.length===1?'':'s'} into ${proj.name}.`
+    +(groupCount?` Grouped into ${groupCount} summary task${groupCount===1?'':'s'} from the source WBS.`:'')
+    +(newResCount?` Added ${newResCount} new resource${newResCount===1?'':'s'} to the roster.`:''));
 };
 
 /* ---------- JSON backup pane — preview the overwrite before committing ---------- */
@@ -229,6 +256,123 @@ function parseSheetToRows(ws){
     const obj={}; headers.forEach((h,i)=>{ obj[h]=r[i]; }); return obj;
   });
 }
+
+/* ---------- resource matching (shared by Excel + paste/PDF import) ----------
+   A task's Resource column (or a separate resource sheet/file) names people by
+   free text, which never lines up 1:1 with the app's own resource roster. Rather
+   than guess a fuzzy match silently or dump the text into Notes as dead weight,
+   every name is resolved to either an existing resource (exact, case-insensitive
+   match — the "obvious" case, no prompt needed) or flagged for a one-time human
+   decision before import: match to an existing resource, or create a new one. */
+let resourceCandidates={}; // lowercased name -> {name, cap, shift} — found in a resource sheet/file, not yet in RES
+let resourceResolutions={}; // lowercased name -> {action:'existing'|'new', key?, name, cap, shift}
+function splitResourceNames(v){
+  return String(v||'').split(/[,;/]+|\band\b/i).map(s=>s.trim()).filter(Boolean);
+}
+function resetResourceMatching(){ resourceCandidates={}; resourceResolutions={}; }
+/* headers that read like a resource roster: a name-ish column plus either a
+   capacity-ish column or a sheet name that says "resource" outright. */
+function looksLikeResourceSheet(sheetName, headers){
+  const nameCol=findCol(headers,['resource','name','role','crew','discipline']);
+  const capCol=findCol(headers,['capacity','cap','headcount','qty','quantity','count']);
+  return !!(nameCol && (capCol || /resource/i.test(sheetName)));
+}
+function rowsToResourceCandidates(rows){
+  if(!rows.length) return [];
+  const headers=Object.keys(rows[0]);
+  const nameCol=findCol(headers,['resource','name','role','crew','discipline']);
+  const capCol=findCol(headers,['capacity','cap','headcount','qty','quantity','count']);
+  const shiftCol=findCol(headers,['shift']);
+  if(!nameCol) return [];
+  return rows.map(r=>{
+    const name=String(r[nameCol]||'').trim(); if(!name) return null;
+    const cap=capCol?Math.max(1,Math.round(Number(r[capCol]))||1):1;
+    const shiftRaw=shiftCol?String(r[shiftCol]||'').toLowerCase():'';
+    const shift=/night/.test(shiftRaw)?'night':'day';
+    return {name, cap, shift};
+  }).filter(Boolean);
+}
+function mergeResourceCandidates(list){
+  list.forEach(c=>{ resourceCandidates[c.name.toLowerCase()]=c; });
+}
+/* Scans every sheet in a workbook except the one already used for tasks, and merges
+   in the first one that looks like a resource roster — covers "a separate sheet in
+   the same file", one of the two supply modes asked for (the other, a wholly separate
+   file, is handled by the dedicated Resource file input). */
+function findResourceSheetInWorkbook(wb, excludeSheetName){
+  for(const name of wb.SheetNames){
+    if(name===excludeSheetName) continue;
+    const rows=parseSheetToRows(wb.Sheets[name]);
+    if(!rows.length) continue;
+    if(looksLikeResourceSheet(name, Object.keys(rows[0]))){
+      mergeResourceCandidates(rowsToResourceCandidates(rows));
+      return name;
+    }
+  }
+  return null;
+}
+/* Re-derives resourceResolutions from the current stagedRows + resourceCandidates +
+   the live RES roster — safe to call repeatedly (e.g. after the optional resource
+   file loads) since it only overwrites entries, never accumulates stale ones. */
+function resolveResources(){
+  const names=new Set();
+  stagedRows.forEach(r=>(r._resourceNamesRaw||[]).forEach(n=>names.add(n)));
+  const prev=resourceResolutions; resourceResolutions={};
+  names.forEach(name=>{
+    const lower=name.toLowerCase();
+    const existingKey=Object.keys(RES).find(k=>RES[k].name.toLowerCase()===lower);
+    if(existingKey){ resourceResolutions[lower]={action:'existing', key:existingKey, name}; return; }
+    const cand=resourceCandidates[lower];
+    if(cand){ resourceResolutions[lower]={action:'new', name:cand.name, cap:cand.cap, shift:cand.shift, confident:true}; return; }
+    // No confident match — keep the user's own prior choice if they already resolved
+    // this one (e.g. re-parsing after adding a resource file shouldn't discard it).
+    resourceResolutions[lower]=prev[lower] && !prev[lower].confident ? prev[lower] : {action:'new', name, cap:1, shift:'day'};
+  });
+}
+function renderResMatchTable(){
+  const wrap=byId('importResMatchWrap'), table=byId('importResMatchTable');
+  const entries=Object.entries(resourceResolutions);
+  if(!entries.length){ wrap.hidden=true; table.innerHTML=''; return; }
+  const needsReview=entries.filter(([,r])=>!r.confident && r.action==='new' && !r._reviewed);
+  const auto=entries.length-needsReview.length;
+  table.innerHTML='';
+  const summary=document.createElement('div'); summary.className='dep-note';
+  summary.textContent = auto ? `${auto} resource${auto===1?'':'s'} matched automatically.${needsReview.length?` ${needsReview.length} need a quick check below.`:''}` : `${needsReview.length} resource${needsReview.length===1?'':'s'} need a quick check before import.`;
+  table.appendChild(summary);
+  needsReview.forEach(([lower,res])=>{
+    const row=document.createElement('div'); row.className='res-match-row';
+    const label=document.createElement('span'); label.className='res-match-name'; label.textContent=res.name;
+    const sel=document.createElement('select');
+    sel.innerHTML='<option value="new">+ Create new resource</option>'
+      + Object.entries(RES).map(([k,r])=>`<option value="${k}">Match to "${r.name}"</option>`).join('');
+    sel.value = res.action==='existing' ? res.key : 'new';
+    sel.onchange=()=>{
+      res._reviewed=true;
+      if(sel.value==='new'){ resourceResolutions[lower]={action:'new', name:res.name, cap:1, shift:'day', _reviewed:true}; }
+      else { resourceResolutions[lower]={action:'existing', key:sel.value, name:res.name, _reviewed:true}; }
+    };
+    row.appendChild(label); row.appendChild(sel);
+    table.appendChild(row);
+  });
+  wrap.hidden=false;
+}
+async function parseResourceFile(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(new Uint8Array(buf), {type:'array'});
+  const rows=parseSheetToRows(wb.Sheets[wb.SheetNames[0]]);
+  return rowsToResourceCandidates(rows);
+}
+byId('importResFile').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    const list=await parseResourceFile(f);
+    mergeResourceCandidates(list);
+    resolveResources(); renderResMatchTable();
+    showToast(`✓ Found ${list.length} resource${list.length===1?'':'s'} in "${f.name}".`);
+  } catch(err){
+    showToast('✗ Could not read that file as a spreadsheet.');
+  }
+});
 function buildStagedFromExcelRows(rows){
   if(!rows.length) return {staged:[], extraHeaders:[]};
   const headers=Object.keys(rows[0]);
@@ -262,11 +406,11 @@ function buildStagedFromExcelRows(rows){
       }
     }
     const notesParts=[];
-    if(resCol && r[resCol]) notesParts.push('Resource (from import): '+r[resCol]);
     if(notesCol && r[notesCol]) notesParts.push(String(r[notesCol]));
     const extra={}; extraHeaders.forEach(h=>{ if(r[h]!==undefined && r[h]!=='') extra[h]=String(r[h]); });
     const baseNotes=notesParts.join(' — ');
-    staged.push({include:true, name, start, end, phaseId: guessPhase(phaseCol?r[phaseCol]:null)||PHASES[0].id, status: statusCol?guessStatus(r[statusCol]):'upcoming', notes: baseNotes, _baseNotes: baseNotes, flags, _extra:extra});
+    const resourceNamesRaw=resCol && r[resCol] ? splitResourceNames(r[resCol]) : [];
+    staged.push({include:true, name, start, end, phaseId: guessPhase(phaseCol?r[phaseCol]:null)||PHASES[0].id, status: statusCol?guessStatus(r[statusCol]):'upcoming', notes: baseNotes, _baseNotes: baseNotes, flags, _extra:extra, _resourceNamesRaw:resourceNamesRaw});
   });
   return {staged, extraHeaders};
 }
@@ -277,15 +421,19 @@ byId('importExcelFile').addEventListener('change', e=>{
   reader.onload=()=>{
     try{
       const wb=XLSX.read(new Uint8Array(reader.result), {type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
+      const taskSheetName=wb.SheetNames[0];
+      const ws=wb.Sheets[taskSheetName];
       const rows=parseSheetToRows(ws);
       const {staged, extraHeaders}=buildStagedFromExcelRows(rows);
       stagedRows=staged;
       setExtraFieldDefs(extraHeaders.map(h=>({key:h, label:h})));
+      const resSheet = wb.SheetNames.length>1 ? findResourceSheetInWorkbook(wb, taskSheetName) : null;
+      resolveResources(); renderResMatchTable();
       const flagged=staged.filter(r=>r.flags && r.flags.length).length;
       byId('importExcelStatus').textContent = stagedRows.length
-        ? `Matched ${stagedRows.length} row(s) from "${wb.SheetNames[0]}". Review below — edit dates/names, set each row's phase, or uncheck rows you don't want.`
+        ? `Matched ${stagedRows.length} row(s) from "${taskSheetName}". Review below — edit dates/names, set each row's phase, or uncheck rows you don't want.`
           + (flagged?` ⚠ ${flagged} row${flagged===1?'':'s'} flagged for a possible date/duration issue.`:'')
+          + (resSheet?` Also found a resource list in "${resSheet}".`:'')
         : 'Could not find both a Name and a Start Date column automatically. Try a header row that includes words like "Task"/"Name" and "Start".';
       renderReviewTable();
     } catch(err){ byId('importExcelStatus').textContent='Could not read that file as a spreadsheet.'; }
@@ -423,6 +571,9 @@ async function interpretPastedText(text){
 async function runPasteParse(){
   const text=byId('importPasteText').value.trim();
   if(!text){ byId('importPasteStatus').textContent='Paste some text first, or upload a PDF above.'; return; }
+  // The deterministic parser has no resource column of its own — a Resource file, if the
+  // user already attached one, is left as-is (not reset) so re-parsing the pasted text
+  // doesn't throw away resources they already supplied separately.
 
   if(looksLikeWbsTable(text)){
     const {leaves, skipped}=parseWbsTable(text);
@@ -436,10 +587,12 @@ async function runPasteParse(){
         _extra:{'WBS code':r.wbs, 'Source duration text':r.durationText, 'Group':r.subGroupName||''}
       }));
       setExtraFieldDefs([{key:'WBS code', label:'WBS code'}, {key:'Source duration text', label:'Source duration text'}, {key:'Group', label:'Group (from source WBS)'}]);
+      resolveResources(); renderResMatchTable();
       byId('importPasteStatus').textContent=`Recognized a project-schedule table (WBS/Duration/Start/Finish columns) — parsed ${leaves.length} task${leaves.length===1?'':'s'} directly, no AI and no size limit (skipped ${skipped} summary/rollup row${skipped===1?'':'s'} that only span their own children's dates).`
         + (groupedCount?` ${groupedCount} of them will be grouped into summary tasks matching the source's own WBS structure.`:'')
         + (flagged?` ⚠ ${flagged} row${flagged===1?'':'s'} flagged for a possible date/duration issue — hover the ⚠ on that row.`:'')
-        + ' Phase guesses are rough — review each row below.';
+        + ' Phase guesses are rough — review each row below.'
+        + (Object.keys(resourceCandidates).length?' A resource file is attached — matched against the names it found.':'');
       renderReviewTable();
       return;
     }
@@ -452,6 +605,7 @@ async function runPasteParse(){
   byId('importInterpretBtn').disabled=false;
   if(rows && rows.length){
     stagedRows=rows;
+    resolveResources(); renderResMatchTable();
     byId('importPasteStatus').textContent=`Proposed ${rows.length} task(s) — review below before importing. Dates are Claude’s best inference from the text — check them.`;
     renderReviewTable();
   } else if(rows){

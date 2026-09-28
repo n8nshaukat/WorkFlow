@@ -5,7 +5,7 @@
 
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><span class="mark"></span><h1 class="disp">WorkFlow</h1></div>
+    <div class="brand"><span class="mark"></span><h1 class="disp">WorkFlow</h1><button class="theme-toggle" id="themeToggle" title="Theme"></button></div>
     <div class="side-section">
       <h2>Projects</h2>
       <div class="proj-list" id="projList"></div>
@@ -263,6 +263,19 @@
         <div class="field-group"><label class="flabel">…or paste text</label><textarea id="importPasteText" style="min-height:120px;" placeholder="Select and copy the task list/table out of your PDF, then paste it here — a full MS Project or Primavera schedule export works, not just short excerpts."></textarea></div>
         <button class="btn primary small" id="importInterpretBtn">✨ Parse pasted text</button>
         <div class="dep-note" id="importPasteStatus" style="margin-top:8px;">Upload a PDF directly, or paste text copied from one. A recognized MS Project / Primavera schedule table (WBS, Duration, Start, Finish columns) is parsed directly — no AI, no size limit, works on the full document. Anything else is sent to Claude (this artifact's own "ask Claude" capability, billed to your account, asks permission the first time) to interpret. Scanned/image-only PDFs have no selectable text — you'll be told if that happens; run one through OCR or a PDF-to-Excel tool first, then use the Excel tab instead.</div>
+      </div>
+
+      <div class="field-group" id="importResFilePane">
+        <label class="flabel">Resource list (optional)</label>
+        <input type="file" id="importResFile" accept=".xlsx,.xls,.csv">
+        <div class="dep-note" style="margin-top:6px;">A separate file naming resources and their capacity — used alongside whichever tab above supplies the tasks. Not needed if resources are already a column in the main file, or their own sheet in it (both are picked up automatically).</div>
+      </div>
+
+      <div id="importResMatchWrap" hidden>
+        <div class="field-group">
+          <label class="flabel">Resources found in the source</label>
+          <div id="importResMatchTable" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
       </div>
 
       <div id="importReviewWrap" style="display:none;">
