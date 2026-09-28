@@ -12,7 +12,9 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) before hand-editing any template-literal copy in `app.js`.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 38, matches the in-app build tag).
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 39, matches the in-app build tag).
+
+**Known unresolved: the "sample" (AI-interpret) capability is stuck declined for the user's own account/browser on this artifact** — `sample.json(...)` throws `not_granted` every time, with no permission prompt appearing on retry (confirmed: reloaded and retried, still declined). This is a platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` can fix it directly. Affects: the AI-interpret fallback for unstructured pasted text, and (now, as of v39) the AI fallback for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without this capability at all. If this resolves itself or the user finds a fix, remove this note.
 
 **A source snapshot also lives in this repo at `mockup/`** (added this session for external review without touching claude.ai's own sharing) — it's the same 5 files as the live artifact and is now the working copy edits are made to before publishing; re-sync by copying the artifact's files back in if the two ever drift.
 
