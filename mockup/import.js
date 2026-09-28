@@ -131,7 +131,7 @@ byId('importConfirm').onclick=()=>{
   const newResKeys={};
   let newResCount=0;
   Object.entries(resourceResolutions).forEach(([lower,res])=>{
-    if(res.action!=='new') return;
+    if(res.action!=='new' || res.include===false) return;
     const existingKey=Object.keys(RES).find(k=>RES[k].name.toLowerCase()===lower);
     if(existingKey){ newResKeys[lower]=existingKey; return; } // created by an earlier row's resolution this same commit, or matches something added since
     const key=uid('res');
@@ -313,32 +313,41 @@ function findResourceSheetInWorkbook(wb, excludeSheetName){
 }
 /* Re-derives resourceResolutions from the current stagedRows + resourceCandidates +
    the live RES roster — safe to call repeatedly (e.g. after the optional resource
-   file loads) since it only overwrites entries, never accumulates stale ones. */
+   file loads) since it only overwrites entries, never accumulates stale ones.
+   Covers two different kinds of entry: `linked` (a name a staged task's Resource
+   column actually references — always gets created/matched, no opt-out) and
+   roster-only (found in a resource sheet/file but no current task names it —
+   optional, the viewer decides whether to add it via a checkbox). */
 function resolveResources(){
   const names=new Set();
   stagedRows.forEach(r=>(r._resourceNamesRaw||[]).forEach(n=>names.add(n)));
+  Object.values(resourceCandidates).forEach(c=>names.add(c.name));
   const prev=resourceResolutions; resourceResolutions={};
   names.forEach(name=>{
     const lower=name.toLowerCase();
+    const linked=stagedRows.some(r=>(r._resourceNamesRaw||[]).some(n=>n.toLowerCase()===lower));
     const existingKey=Object.keys(RES).find(k=>RES[k].name.toLowerCase()===lower);
-    if(existingKey){ resourceResolutions[lower]={action:'existing', key:existingKey, name}; return; }
+    if(existingKey){ resourceResolutions[lower]={action:'existing', key:existingKey, name, linked, include:true}; return; }
     const cand=resourceCandidates[lower];
-    if(cand){ resourceResolutions[lower]={action:'new', name:cand.name, cap:cand.cap, shift:cand.shift, confident:true}; return; }
+    if(cand){ resourceResolutions[lower]={action:'new', name:cand.name, cap:cand.cap, shift:cand.shift, confident:true, linked, include:true}; return; }
     // No confident match — keep the user's own prior choice if they already resolved
     // this one (e.g. re-parsing after adding a resource file shouldn't discard it).
-    resourceResolutions[lower]=prev[lower] && !prev[lower].confident ? prev[lower] : {action:'new', name, cap:1, shift:'day'};
+    resourceResolutions[lower]=prev[lower] && !prev[lower].confident ? {...prev[lower], linked} : {action:'new', name, cap:1, shift:'day', linked, include:true};
   });
 }
 function renderResMatchTable(){
   const wrap=byId('importResMatchWrap'), table=byId('importResMatchTable');
   const entries=Object.entries(resourceResolutions);
   if(!entries.length){ wrap.hidden=true; table.innerHTML=''; return; }
-  const needsReview=entries.filter(([,r])=>!r.confident && r.action==='new' && !r._reviewed);
-  const auto=entries.length-needsReview.length;
   table.innerHTML='';
-  const summary=document.createElement('div'); summary.className='dep-note';
-  summary.textContent = auto ? `${auto} resource${auto===1?'':'s'} matched automatically.${needsReview.length?` ${needsReview.length} need a quick check below.`:''}` : `${needsReview.length} resource${needsReview.length===1?'':'s'} need a quick check before import.`;
-  table.appendChild(summary);
+  const linked=entries.filter(([,r])=>r.linked);
+  const needsReview=linked.filter(([,r])=>!r.confident && r.action==='new' && !r._reviewed);
+  const auto=linked.length-needsReview.length;
+  if(linked.length){
+    const summary=document.createElement('div'); summary.className='dep-note';
+    summary.textContent = auto ? `${auto} resource${auto===1?'':'s'} from your tasks matched automatically.${needsReview.length?` ${needsReview.length} need a quick check below.`:''}` : `${needsReview.length} resource${needsReview.length===1?'':'s'} from your tasks need a quick check before import.`;
+    table.appendChild(summary);
+  }
   needsReview.forEach(([lower,res])=>{
     const row=document.createElement('div'); row.className='res-match-row';
     const label=document.createElement('span'); label.className='res-match-name'; label.textContent=res.name;
@@ -348,12 +357,30 @@ function renderResMatchTable(){
     sel.value = res.action==='existing' ? res.key : 'new';
     sel.onchange=()=>{
       res._reviewed=true;
-      if(sel.value==='new'){ resourceResolutions[lower]={action:'new', name:res.name, cap:1, shift:'day', _reviewed:true}; }
-      else { resourceResolutions[lower]={action:'existing', key:sel.value, name:res.name, _reviewed:true}; }
+      if(sel.value==='new'){ resourceResolutions[lower]={action:'new', name:res.name, cap:1, shift:'day', linked:true, include:true, _reviewed:true}; }
+      else { resourceResolutions[lower]={action:'existing', key:sel.value, name:res.name, linked:true, include:true, _reviewed:true}; }
     };
     row.appendChild(label); row.appendChild(sel);
     table.appendChild(row);
   });
+  // Roster-only: found in a resource sheet/file, but no current task names them.
+  // Nothing to decide for ones already in RES — only new ones get an opt-in checkbox.
+  const rosterOnly=entries.filter(([,r])=>!r.linked);
+  const rosterNew=rosterOnly.filter(([,r])=>r.action==='new');
+  const rosterHave=rosterOnly.length-rosterNew.length;
+  if(rosterOnly.length){
+    const h=document.createElement('div'); h.className='dep-note'; if(linked.length) h.style.marginTop='10px';
+    h.textContent = `From your resource list: ${rosterHave?`${rosterHave} already in your roster`:''}${rosterHave&&rosterNew.length?', ':''}${rosterNew.length?`${rosterNew.length} new — add to the roster?`:''}`;
+    table.appendChild(h);
+    rosterNew.forEach(([lower,res])=>{
+      const row=document.createElement('div'); row.className='res-match-row';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=res.include!==false;
+      cb.onchange=()=>{ res.include=cb.checked; };
+      const label=document.createElement('span'); label.className='res-match-name'; label.textContent=res.name+(res.cap>1?` — cap ${res.cap}`:'');
+      row.appendChild(cb); row.appendChild(label);
+      table.appendChild(row);
+    });
+  }
   wrap.hidden=false;
 }
 async function parseResourceFile(file){
@@ -362,15 +389,60 @@ async function parseResourceFile(file){
   const rows=parseSheetToRows(wb.Sheets[wb.SheetNames[0]]);
   return rowsToResourceCandidates(rows);
 }
+/* Deterministic fallback for a resource/manning list PDF, no AI needed: a name
+   followed by a small integer headcount at the end of the line ("Cementing Crew
+   ... 6", "ABS Surveyor: 1"). Common enough in manning documents to be a safe
+   default rather than a guess at one specific document's layout; anything that
+   doesn't match this shape falls through to AI-interpret instead. */
+function parseManningTextHeuristic(text){
+  const results=[];
+  text.split('\n').forEach(lineRaw=>{
+    const line=lineRaw.trim(); if(!line) return;
+    const m=line.match(/^(.{2,60}?)[\s:.\-]{1,6}(\d{1,3})\s*$/);
+    if(!m) return;
+    const name=m[1].trim().replace(/[\s.\-:]+$/,'');
+    const cap=Number(m[2]);
+    if(!name || /^\d/.test(name) || !isFinite(cap) || cap<=0 || cap>500) return;
+    results.push({name, cap, shift:'day'});
+  });
+  return results;
+}
+async function interpretResourceText(text){
+  const sample=await getSample();
+  if(!sample) return null;
+  const prompt='Extract a list of resources, crew, or roles (with headcount/capacity if stated) from this manning or resource list text, likely from a PDF. '
+    + 'Reply with ONLY a JSON array, each item shaped {"name": string, "cap": number}. "cap" defaults to 1 if not stated. '
+    + 'Skip anything that is not an actual resource/role/crew — headers, dates, page numbers, totals. '
+    + 'Text:\n"""\n' + text.slice(0,6000) + '\n"""';
+  try{
+    const data=await sample.json(prompt, {modelTier:'default'});
+    const arr=Array.isArray(data) ? data : (data && Array.isArray(data.resources) ? data.resources : null);
+    if(!arr) return null;
+    return arr.map(x=>({name:String(x.name||'').trim(), cap:Math.max(1,Math.round(Number(x.cap))||1), shift:'day'})).filter(x=>x.name);
+  } catch(e){ return null; }
+}
 byId('importResFile').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
+  const isPdf=/\.pdf$/i.test(f.name) || f.type==='application/pdf';
   try{
-    const list=await parseResourceFile(f);
+    let list;
+    if(isPdf){
+      const text=await extractPdfText(f);
+      if(!text.trim()){ showToast('✗ No selectable text found in that PDF.'); return; }
+      list=parseManningTextHeuristic(text);
+      if(!list.length){
+        showToast('No obvious "Name … count" lines found — asking Claude to interpret it…');
+        list=await interpretResourceText(text)||[];
+      }
+      if(!list.length){ showToast('✗ Could not find a resource list in that PDF — try Excel/CSV instead.'); return; }
+    } else {
+      list=await parseResourceFile(f);
+    }
     mergeResourceCandidates(list);
     resolveResources(); renderResMatchTable();
     showToast(`✓ Found ${list.length} resource${list.length===1?'':'s'} in "${f.name}".`);
   } catch(err){
-    showToast('✗ Could not read that file as a spreadsheet.');
+    showToast('✗ Could not read that file.');
   }
 });
 function buildStagedFromExcelRows(rows){
