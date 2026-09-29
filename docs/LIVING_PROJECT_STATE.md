@@ -12,7 +12,7 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) and LL-012 (a CSS class referenced only in JS, never defined) before hand-editing `app.js`/`style.css` together.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 41, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 45, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
 
 **Known unresolved: the "sample" (AI-interpret) capability is stuck declined** for the user's own account/browser on this artifact — `sample.json(...)` throws `not_granted` every time, no permission prompt on retry (confirmed: reloaded, retried, still declined). Platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` fixes it directly. Affects the AI-interpret fallback for unstructured pasted text and for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without it. Remove this note once resolved.
 
@@ -26,6 +26,10 @@
 7. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
 
 ---
+
+## v45 — Dashboard is now a real tab
+
+Integrated as a 5th tab (Gantt / Resources / Network / **Dashboard** / Guide), not just a standalone concept anymore. Every number is computed live from the current project, reusing the same helpers Gantt/Network/Resources already use (`leafTasks`, `computeCPM`, `phaseRollup`, `totalHeadcountByDay`, `dailyDemand`, `rangeOf`) — no separate data model. Content: overall % complete, finish date, on-critical-path count (real CPM, not the status flag), upcoming milestones; phase timeline (real date ranges, shows real overlap) and phase progress with real hold/critical task names on hover; POB trend from real headcount data with a working heli/boat transfer-marker toggle from the project's real transfers; per-resource utilization heat-strip bucketed across the real schedule span; flagged/at-risk list from real hold/critical tasks. The standalone prototype (`LmYXYxC1zd3TxQ9boxRVc1`) still exists but is now superseded by this — not being kept in sync going forward.
 
 ## v44 — found the real "links displaced" bug (LL-014)
 
@@ -102,6 +106,7 @@ MS Project/Primavera-style task grouping: summary tasks that expand/collapse wit
 - **Gantt tab** — phase-grouped tasks/milestones; drag to reschedule, drag edge to resize, drag either end's knob onto another bar to link a dependency (cycle-safe, click the arrow to delete it); a Start/End/Days anchor-pin system in the task drawer (pick which field stays fixed while editing the other two); optional inline columns beside each task (Start/End/Days/%/Status/WBS/Source-duration, toggled via a "Columns" picker); a searchable predecessor typeahead sorted by temporal proximity; selected-task row/bar highlighting; a Personnel Transfers lane and a toggleable POB lane, both pinned below the date header while scrolling; Day/Week/Month zoom.
 - **Resources tab** — full roster, shift patterns, per-resource utilization heatmap, POB cap.
 - **Network tab** — auto-generated critical-path (CPM) diagram.
+- **Dashboard tab** — live summary: % complete, finish date, on-critical-path count, upcoming milestones, phase timeline/overlap, phase progress, POB trend with transfer markers, per-resource utilization over time, flagged/at-risk tasks. See "v45" above.
 - **Guide tab** — in-app onboarding flow.
 - **Projects** — full lifecycle (create/rename/status/delete), not fixed to seed data.
 - **Persistence** — the artifact's own bundled `db` capability (shared JSON doc store, no external backend). See "Sharing with Coworkers" below for what this means and doesn't mean for multi-user use.
@@ -179,7 +184,7 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 1. **Live-browser-test v40's whole UX batch** — nothing in it has been opened in a real browser yet.
 2. User-tests v39/v40 — confirm the manning-list PDF now parses via the resource file input, and report back on the stuck AI-permission issue (browser site-settings / incognito / different browser worth trying).
 3. If/when the full extracted text of the Gantt-view schedule PDF is available, build a dedicated deterministic parser for it rather than depending on the stuck AI path.
-4. Review the Dashboard/Analytics prototype and decide whether to fold it into the main mockup as a 5th tab, or iterate on the concept first.
+4. Dashboard is now integrated as a real tab (v45) — user-test it against a real schedule and see if the KPI/content set actually holds up in practice.
 5. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
 6. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
 7. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
