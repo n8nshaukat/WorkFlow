@@ -1,7 +1,7 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v41 · 2026-09-29';
+const BUILD_INFO='v42 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
@@ -162,10 +162,14 @@ function findRowDropTarget(x,y,excludeId){
   }
   return null;
 }
-/* Top ~30% of a task/milestone row = reorder (drop indicator line, no grouping); the rest
-   of the row = the existing group/reparent behavior. A phase or group header target always
-   groups, regardless of where on it you drop — reordering only makes sense between two
-   plain siblings. */
+/* One gesture, one meaning per target type — no pixel-zone split on the same row, which
+   was reported as inconsistent/unpredictable (a top-30%-of-row reorder zone vs. the rest
+   of the row grouping was too fine-grained to reliably hit on purpose):
+   - Drop on another TASK or MILESTONE → always reorder next to it (top half = before,
+     bottom half = after). Never groups. To group two loose tasks, select both (checkbox)
+     and use "+ New group", or use the ⇥ indent button to join the one directly above.
+   - Drop on a GROUP or PHASE header → always groups/moves into it (unchanged) — these are
+     a categorically different kind of target, so there's no ambiguity to remove there. */
 function attachRowDragHandle(handle, taskId){
   handle.addEventListener('pointerdown', e=>{
     e.stopPropagation(); e.preventDefault();
@@ -173,26 +177,32 @@ function attachRowDragHandle(handle, taskId){
     let hoverEl=null, hoverBefore=false;
     function classify(ev){
       const el=findRowDropTarget(ev.clientX, ev.clientY, taskId);
-      if(!el) return {el:null, before:false};
+      if(!el) return {el:null, before:false, reorder:false};
       const isReorderable=el.classList.contains('task-row')||el.classList.contains('milestone-row');
-      if(!isReorderable) return {el, before:false};
+      if(!isReorderable) return {el, before:false, reorder:false};
       const r=el.getBoundingClientRect();
-      return {el, before:(ev.clientY-r.top) < r.height*0.3};
+      return {el, before:(ev.clientY-r.top) < r.height*0.5, reorder:true};
     }
     function onMove(ev){
-      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); }
+      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); hoverEl.classList.remove('drop-after'); }
       const c=classify(ev);
       hoverEl=c.el; hoverBefore=c.before;
-      if(hoverEl) hoverEl.classList.add(hoverBefore?'drop-before':'drop-hover');
+      if(hoverEl) hoverEl.classList.add(c.reorder ? (hoverBefore?'drop-before':'drop-after') : 'drop-hover');
     }
     function onUp(ev){
       document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp);
       document.body.classList.remove('row-dragging');
-      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); }
+      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); hoverEl.classList.remove('drop-after'); }
       const c=classify(ev);
       if(!c.el) return;
       const proj=project();
-      const res=c.before ? applyReorder(proj, taskId, c.el.dataset.rowId, true) : applyReparent(proj, taskId, c.el.dataset.rowId);
+      if(c.reorder){
+        const res=applyReorder(proj, taskId, c.el.dataset.rowId, c.before);
+        if(res){ persistProject(proj); renderAll(); showToast(reparentToast(res)); }
+        else showToast('✗ Can only reorder within the same phase/group — select it and use "Move to" to move it elsewhere.');
+        return;
+      }
+      const res=applyReparent(proj, taskId, c.el.dataset.rowId);
       if(res){ persistProject(proj); renderAll(); showToast(reparentToast(res)); }
     }
     document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
@@ -865,7 +875,7 @@ function renderGantt(){
       }
     } else if(r.type==='phase'){
       row.dataset.rowId=r.phase.id; // a phase is a valid drag/indent/"Move to" target too, same as a group
-      label.innerHTML=`<span class="chevron${state.collapsed.has(r.phase.id)?' collapsed':''}"></span><span class="phase-swatch-btn" title="Click to change this phase's color"></span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
+      label.innerHTML=`<span class="chevron">${state.collapsed.has(r.phase.id)?'+':'−'}</span><span class="phase-swatch-btn" title="Click to change this phase's color"></span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
       const swatchEl=label.querySelector('.phase-swatch-btn'); swatchEl.style.background=r.phase.color;
       swatchEl.addEventListener('click', e=>{ e.stopPropagation(); openPhaseColorPicker(r.phase, swatchEl); });
       if(PHASE_DEFAULT_COLORS[r.phase.id] && r.phase.color!==PHASE_DEFAULT_COLORS[r.phase.id]){
@@ -886,7 +896,7 @@ function renderGantt(){
     } else if(r.type==='group'){
       const g=r.item, roll=rollupOf(proj,g);
       row.dataset.rowId=g.id;
-      label.insertAdjacentHTML('beforeend', `<span class="chevron${g.collapsed?' collapsed':''}"></span><span class="phase-swatch" style="background:${r.phase.color}"></span>`);
+      label.insertAdjacentHTML('beforeend', `<span class="chevron">${g.collapsed?'+':'−'}</span><span class="phase-swatch" style="background:${r.phase.color}"></span>`);
       if(state.renamingGroupId===g.id){
         const input=document.createElement('input'); input.type='text'; input.value=g.name; input.className='group-rename-input';
         input.addEventListener('click', e=>e.stopPropagation());
@@ -907,8 +917,8 @@ function renderGantt(){
       label.appendChild(delBtn);
       row.onclick=()=>{ if(state.renamingGroupId===g.id) return; g.collapsed=!g.collapsed; persistProject(proj); renderGantt(); };
       const left=(roll.start-rangeStart)*pxPerDay, width=Math.max((roll.end-roll.start)*pxPerDay,10);
-      const sbar=document.createElement('div'); sbar.className='summary-bar';
-      sbar.style.left=left+'px'; sbar.style.width=width+'px';
+      const sbar=document.createElement('div'); sbar.className='summary-bar phase-summary-bar';
+      sbar.style.left=left+'px'; sbar.style.width=width+'px'; sbar.style.setProperty('--phase-c', r.phase.color);
       sbar.innerHTML='<div class="beam"></div><div class="cap l"></div><div class="cap r"></div>';
       tl.appendChild(sbar);
     } else if(r.type==='task'){
@@ -916,7 +926,7 @@ function renderGantt(){
       if(selected) row.classList.add('selected');
       if(r.indent) label.classList.add('nested');
       row.dataset.rowId=it.id;
-      const grip=document.createElement('span'); grip.className='row-grip'; grip.title='Drag onto another task, a group, or a phase to group/move it';
+      const grip=document.createElement('span'); grip.className='row-grip'; grip.title='Drag onto another task to reorder it, or onto a group/phase to move it there';
       grip.textContent='⠿';
       label.appendChild(grip);
       attachRowDragHandle(grip, it.id);
@@ -953,15 +963,16 @@ function renderGantt(){
       // was silently clipping away anything positioned outside the bar's own box, including
       // the entire enlarged hit-area added a few rounds ago. That's very likely the real
       // reason grabbing the knob has been unreliable this whole time, not a drop-logic bug.
-      // Knobs sit near the TOP of the bar (bar spans y 6-28), not centered on it — see the
-      // CSS comment on .bar-link-knob::before for why: a mid-bar knob with the old wide
+      // Knobs sit near the BOTTOM of the bar (bar spans y 6-28), not centered on it — see
+      // the CSS comment on .bar-link-knob::before for why: a mid-bar knob with the old wide
       // vertical hit-area covered almost the entire edge column, so the resize handle
-      // underneath was nearly ungrabbable. Leaving y 12-28 free of the knob keeps both
-      // usable: grab near the top corner to link, anywhere below it to resize.
+      // underneath was nearly ungrabbable. Leaving y 6-20 free of the knob keeps both
+      // usable: grab anywhere in the upper ~2/3 of the edge to resize, near the bottom
+      // corner to link.
       const knobL=document.createElement('div'); knobL.className='bar-link-knob left'; knobL.title='Drag to link a predecessor onto this task';
-      knobL.style.left=(left-6)+'px'; knobL.style.top='2px';
+      knobL.style.left=(left-6)+'px'; knobL.style.top='20px';
       const knobR=document.createElement('div'); knobR.className='bar-link-knob right'; knobR.title='Drag onto another task to make this one its predecessor';
-      knobR.style.left=(left+width-6)+'px'; knobR.style.top='2px';
+      knobR.style.left=(left+width-6)+'px'; knobR.style.top='20px';
       tl.appendChild(knobL); tl.appendChild(knobR);
       attachLinkKnob(knobR,it,'end');
       attachLinkKnob(knobL,it,'start');
@@ -970,7 +981,7 @@ function renderGantt(){
       if(selected) row.classList.add('selected');
       if(r.indent) label.classList.add('nested');
       row.dataset.rowId=it.id;
-      const grip=document.createElement('span'); grip.className='row-grip'; grip.title='Drag onto another task, a group, or a phase to group/move it';
+      const grip=document.createElement('span'); grip.className='row-grip'; grip.title='Drag onto another task to reorder it, or onto a group/phase to move it there';
       grip.textContent='⠿';
       label.appendChild(grip);
       attachRowDragHandle(grip, it.id);
@@ -1591,7 +1602,7 @@ function renderGuide(){
     </div>
     <div class="guide-ref-grid">
       ${ref('▸ / ▾','Chevron on a summary task','Expands or collapses its children. Collapsed, the summary bar alone shows the group’s overall start–finish.')}
-      ${ref('⠿','Grip on a task or milestone row','Drag it onto another task, a group, or a phase header to move it there — dropping on a plain task groups the two of them together.')}
+      ${ref('⠿','Grip on a task or milestone row','Drag it onto another task or milestone to reorder next to it (top half = before, bottom half = after). Drag it onto a group or phase header instead to move/group it there. To group two loose tasks together, use the ⇥ indent button (joins the one directly above) or select both with their checkboxes and use "+ New group".')}
       ${ref('⇥','Hover an ungrouped task','One click to join whatever task or group sits right above it in the same phase — the quickest way to add a couple of tasks under an existing header.')}
       ${ref('✕','Hover a grouped task','A quick one-click way to pull just that task out of its group — no need to select it first.')}
       ${ref('↳','Dependencies still apply','Links between tasks are unaffected by grouping. Collapse a group and an arrow into or out of it re-anchors to the summary bar’s edge instead of disappearing.')}

@@ -148,8 +148,10 @@ input,select,textarea{font:inherit; color:inherit;}
 .row-label{position:sticky; left:0; z-index:2; width:var(--label-w,280px); flex:0 0 var(--label-w,280px); background:var(--surface); border-right:1px solid var(--line); display:flex; align-items:center; gap:8px; padding:0 12px; overflow:hidden; white-space:nowrap;}
 .phase-row .row-label{background:var(--surface-2);}
 .transfer-row .row-label{background:var(--info-bg); color:var(--info); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em;}
-.chevron{width:9px; height:9px; border-right:2px solid var(--ink-dim); border-bottom:2px solid var(--ink-dim); transform:rotate(-45deg); flex:0 0 9px; transition:transform .15s;}
-.chevron.collapsed{transform:rotate(45deg);}
+/* A literal +/- glyph in a small square, not a rotating triangle — reported as confusing
+   (not obvious which way it points = which state it's in). +/- has no ambiguity: + means
+   "there's more here, click to reveal it", - means "click to tuck it away". */
+.chevron{width:14px; height:14px; flex:0 0 14px; display:flex; align-items:center; justify-content:center; border:1px solid var(--line-strong); border-radius:3px; font-size:11px; line-height:1; color:var(--ink-dim); font-family:'IBM Plex Mono',monospace;}
 .phase-swatch{width:4px; align-self:stretch; border-radius:2px; flex:0 0 4px;}
 .phase-swatch-btn{width:14px; height:14px; border-radius:50%; flex:0 0 14px; cursor:pointer; border:1px solid color-mix(in srgb, var(--ink) 25%, transparent);}
 .phase-swatch-btn:hover{outline:2px solid var(--ink-dim); outline-offset:1px;}
@@ -186,6 +188,10 @@ input,select,textarea{font:inherit; color:inherit;}
 .row.resource-row{height:44px;}
 
 .bar{position:absolute; top:6px; height:22px; border-radius:5px; cursor:grab; display:flex; align-items:center; overflow:hidden; box-shadow:var(--shadow); border:1px solid transparent; transition:box-shadow .1s; user-select:none; touch-action:none;}
+/* A phase/group-color accent, independent of status — status still owns the fill/border
+   inside (.bar-fill), this is just a consistent "which category does this belong to"
+   stripe so a task's group tie stays visible no matter its status. */
+.bar{border-left:3px solid var(--phase-c, var(--line-strong));}
 .bar:active{cursor:grabbing;}
 .bar:hover{box-shadow:0 10px 20px -10px rgba(0,0,0,.35);}
 .bar-fill{position:absolute; inset:0; border-radius:5px;}
@@ -481,6 +487,7 @@ body.row-dragging, body.row-dragging *{cursor:grabbing !important;}
 .row.drop-hover{outline:2px solid var(--accent); outline-offset:-2px;}
 .row.drop-hover .row-label, .row.drop-hover .row-timeline{background:var(--accent-dim);}
 .row.drop-before{box-shadow:inset 0 3px 0 -1px var(--accent);}
+.row.drop-after{box-shadow:inset 0 -3px 0 -1px var(--accent);}
 .task-chk{flex:0 0 auto; width:13px; height:13px; margin:0; accent-color:var(--accent); cursor:pointer;}
 .summary-bar{position:absolute; top:14px; height:6px; z-index:1;}
 .summary-bar .beam{position:absolute; inset:0; background:var(--ink); border-radius:1px;}
