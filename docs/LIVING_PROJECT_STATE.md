@@ -27,6 +27,10 @@
 
 ---
 
+## v43 (same session, fourth round — corrected a wrong fix)
+
+The v42 "bar follows phase color" fix used a left-edge border stripe — wrong, per direct correction: replaced with a translucent wash (`--phase-c` at ~22-28% opacity via `mix-blend-mode`) layered over the status fill, so the bar visibly follows its phase/group header color but less opaque than the header itself, without a border and without covering the status indication. **Lesson for next time: "the bar should follow the header" meant the bar's own color/fill, not a decorative accent — should have asked instead of picking a border as a safe-feeling middle ground.**
+
 ## v42 + Dashboard v2 (same session, third feedback round)
 
 Main app (v42): link knobs moved to the bottom corners of the bar (from top, per feedback); collapse/expand now uses an explicit +/− glyph instead of a rotating chevron (direction wasn't a clear state signal); **grouping/reordering redesigned** — dragging a task onto another task/milestone is now *always* a reorder (top half=before, bottom half=after), never grouping, removing the fragile pixel-zone split that made "does it group or reorder" unpredictable; grouping two loose tasks now goes through the ⇥ indent button or multi-select+"New group" instead of drag. Phase/group color now actually shows on the Gantt bars themselves (a persistent colored left-edge accent on every task bar, plus group rollup bars now colored like phase rollup bars already were) — previously phase color only reached the swatch, not the bars.
