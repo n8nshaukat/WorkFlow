@@ -12,7 +12,7 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) and LL-012 (a CSS class referenced only in JS, never defined) before hand-editing `app.js`/`style.css` together.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 45, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 46, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
 
 **Known unresolved: the "sample" (AI-interpret) capability is stuck declined** for the user's own account/browser on this artifact — `sample.json(...)` throws `not_granted` every time, no permission prompt on retry (confirmed: reloaded, retried, still declined). Platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` fixes it directly. Affects the AI-interpret fallback for unstructured pasted text and for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without it. Remove this note once resolved.
 
@@ -26,6 +26,10 @@
 7. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
 
 ---
+
+## v46 — Transfers/POB freeze rebuilt without `position:sticky` (LL-015)
+
+The sticky-based freeze never actually held — screenshots showed both rows scrolling away with everything else, despite the CSS matching the exact pattern LL-009 already prescribed once for this same feature. Rather than debug sticky a third time, rebuilt it structurally: Personnel Transfers/POB are no longer rows in the scrollable list at all — they're built into a new `#ganttFrozen` container, a sibling placed above `#boardScroll`, genuinely outside the scrolling area. Each frozen row's timeline is clipped and horizontally shifted via a CSS transform kept in sync with the real board's scroll position (`syncFrozenScroll`), rather than relying on `position:sticky` to hold at all. See LL-015 — the lesson here is broader than this one feature: a past fix documented as "here's how to do sticky safely" isn't a permanent guarantee when reapplied elsewhere.
 
 ## v45 — Dashboard is now a real tab
 
