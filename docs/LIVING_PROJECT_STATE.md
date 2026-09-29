@@ -12,7 +12,7 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) and LL-012 (a CSS class referenced only in JS, never defined) before hand-editing `app.js`/`style.css` together.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 40, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 41, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
 
 **Known unresolved: the "sample" (AI-interpret) capability is stuck declined** for the user's own account/browser on this artifact — `sample.json(...)` throws `not_granted` every time, no permission prompt on retry (confirmed: reloaded, retried, still declined). Platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` fixes it directly. Affects the AI-interpret fallback for unstructured pasted text and for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without it. Remove this note once resolved.
 
@@ -26,6 +26,15 @@
 7. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
 
 ---
+
+## v41 follow-ups (same session, after user reviewed v40's description)
+
+User caught real gaps/regressions in the v40 write-up before ever opening a browser — worth noting since it means some of v40's design choices were wrong on inspection, not just untested:
+- **Pin toggles were the wrong design** — rebuilt as a single show/hide toggle (toolbar chip, one per row) where "shown" always means frozen at top; the separate "shown but not frozen" state from v40 wasn't wanted at all.
+- **Phase color swatch was too subtle to notice** — was a 4px bar with only a hover outline as a hint; now a real 14px clickable dot, plus a reset-to-default button. Colors are phase-level only, not per-group — groups/tasks inherit their phase's color, matching how phase-swatches already worked everywhere else in the app.
+- **Dependency arrows disappearing on phase-collapse** — real bug, not related to reordering: `anchorTask()` only re-anchored a dependency arrow when a *group* was collapsed, never when the whole *phase* was collapsed, so arrows into/out of a collapsed phase's tasks just vanished (layout had no entry for them). Fixed — see LL-013's neighbor lesson if one gets written up. **Still unconfirmed:** user also reported links looking "displaced" specifically right after creating a new one via drag-to-join — no code-level cause found for that one after tracing the ghost-line/SVG-render/anchor logic; flagged for a concrete repro (exact steps or a screenshot) rather than guess-patched further, per this project's own LL-007 discipline.
+- **Per-column resize was wrongly called infeasible** — re-examined and built after all: the inline columns (Start/End/Days/etc.) turned out to have fully uniform, fixed widths and order across every row (row-label's `.name` span is the only elastic element, flex:1, absorbing all variation), so a real per-column header with resize handles was safe to add. Lesson: "there's no header row to anchor to" was true but not itself a reason it can't be built — should have checked layout math before declaring it a gap.
+- **Indent/remove-from-group/row-grip buttons were invisible** — `opacity:0` until row hover, easy to never discover at all (reported: "I don't see this button"). Changed to a faint always-visible state, full opacity on hover.
 
 ## v40 — Large UX Feedback Batch (built, NOT browser-tested this session)
 
@@ -42,7 +51,7 @@ User gave a batch of ~14 UX asks after a live-testing pass on v39. All built dir
 - **Phase color labeling** — phase colors (`PHASES[i].color`, previously `var(--pN)` theme-adaptive constants) are now editable: click a phase row's swatch to open a native color picker. A custom pick is a flat hex, so it opts out of light/dark adaptiveness once set (documented tradeoff, not a bug). Persisted as a `{phaseId: color}` map in `config/main`, reapplied over the defaults on load via `applyPhaseColors()`.
 - **Demo data anonymized** — the seed dataset was a real, previously-identifying project (Galoc FPSO, a real Philippines field) plus real vendor/personnel names (Halliburton, ICON, a named person in a history entry). Renamed to fictional "Kestrel FPSO Decommissioning" (+ "Osprey"/"Harrier" for the other two demo projects), vendor names genericized to role-only ("Contractor", "Construction Crew" etc.), personal name in a history entry replaced with "Ops".
 - **"Click to add/remove group member"** — remove already existed (✕ button on a grouped task); add already exists via checkbox multi-select + "Move to" action bar, or the ⇥ indent button. No new code — flagged to the user as already covered, not literally "click the task to add it" which isn't built.
-- **Dashboard/Analytics tab — NOT built, deliberately deferred.** New page, no existing layout to react to — recommended (to the user, agreed implicitly, not re-confirmed) doing a standalone mockup first, same pattern WBS grouping used (`CBCtqMziWrn2QaSe9ABtrt`), rather than guessing at final layout live in the real app. Proposed starting content: % complete + schedule variance, critical-path health, resource utilization/overallocation, upcoming milestones, POB/transfer trend, overdue/at-risk count, phase rollup bars. **Next session: build that prototype, or confirm the content list first if the user wants to steer it before a mockup gets built.**
+- **Dashboard/Analytics — standalone prototype built and approved-to-build-from**: **https://claude.ai/artifact/LmYXYxC1zd3TxQ9boxRVc1** ("Schedule Dashboard"), same pattern as the WBS-grouping prototype (`CBCtqMziWrn2QaSe9ABtrt`) — a separate mockup, not wired into the main app artifact yet. Reuses the real app's own color tokens/fonts (Big Shoulders Display + IBM Plex Sans/Mono, same --p1..--p6 phase hues) so it reads as a real screen of the same product, and uses illustrative numbers derived from the actual Kestrel demo dataset (34% overall complete, phase-by-phase rollup, a POB trend chart, resource utilization bars, upcoming milestones, flagged/at-risk tasks) rather than placeholder content. **Not yet integrated as a real tab in the main mockup** — next step is either folding it in as a 5th tab (Gantt/Resources/Network/Guide/Dashboard) once the layout is approved, or iterating on the concept further first.
 
 ---
 
@@ -156,7 +165,7 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 1. **Live-browser-test v40's whole UX batch** — nothing in it has been opened in a real browser yet.
 2. User-tests v39/v40 — confirm the manning-list PDF now parses via the resource file input, and report back on the stuck AI-permission issue (browser site-settings / incognito / different browser worth trying).
 3. If/when the full extracted text of the Gantt-view schedule PDF is available, build a dedicated deterministic parser for it rather than depending on the stuck AI path.
-4. Build the Dashboard/Analytics mockup.
+4. Review the Dashboard/Analytics prototype and decide whether to fold it into the main mockup as a 5th tab, or iterate on the concept first.
 5. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
 6. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
 7. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
