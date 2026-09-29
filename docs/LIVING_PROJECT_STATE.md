@@ -27,6 +27,12 @@
 
 ---
 
+## v42 + Dashboard v2 (same session, third feedback round)
+
+Main app (v42): link knobs moved to the bottom corners of the bar (from top, per feedback); collapse/expand now uses an explicit +/− glyph instead of a rotating chevron (direction wasn't a clear state signal); **grouping/reordering redesigned** — dragging a task onto another task/milestone is now *always* a reorder (top half=before, bottom half=after), never grouping, removing the fragile pixel-zone split that made "does it group or reorder" unpredictable; grouping two loose tasks now goes through the ⇥ indent button or multi-select+"New group" instead of drag. Phase/group color now actually shows on the Gantt bars themselves (a persistent colored left-edge accent on every task bar, plus group rollup bars now colored like phase rollup bars already were) — previously phase color only reached the swatch, not the bars.
+
+Dashboard prototype v2 (same URL, https://claude.ai/artifact/LmYXYxC1zd3TxQ9boxRVc1): fixed a real conceptual bug — the "Critical path" KPI was counting the manually-set "Flagged critical" status, not an actual computed CPM critical path (zero float, same definition the Network tab uses); relabeled and clarified with a tooltip. Added a phase-timeline section (horizontal bars across the real date range so overlapping phases are visible — prep/P&A/plant-deactivation genuinely overlap in week 1–2 of the demo schedule). Phase-progress hold/critical flags now have hover tooltips naming the actual task and reason. POB trend got a heli/boat transfer marker overlay with a working show/hide toggle and legend. Resource utilization changed from a single static peak-vs-cap bar (no context) to an 8-window heat-strip per resource across the same date range, so *when* a resource is busy is visible, not just its peak.
+
 ## v41 follow-ups (same session, after user reviewed v40's description)
 
 User caught real gaps/regressions in the v40 write-up before ever opening a browser — worth noting since it means some of v40's design choices were wrong on inspection, not just untested:
