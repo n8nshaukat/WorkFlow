@@ -1,7 +1,7 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v45 · 2026-09-29';
+const BUILD_INFO='v46 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
@@ -712,9 +712,15 @@ function buildAxisRow(cornerLabel, rangeStart, totalDays, pxPerDay, zoom){
 
 /* ---------- Gantt tab ---------- */
 function buildVisibleRows(proj){
+  // Personnel Transfers / POB used to be entries here, sharing the same scrollable list
+  // as everything else with position:sticky doing the "stay visible" work. That never
+  // reliably held (reported: they scroll away instead of freezing) — sticky nested this
+  // deep inside a flex row, inside a relatively-positioned wrapper, inside the scroll
+  // container turned out to be exactly the kind of nested-sticky situation LL-009 already
+  // warned about once for this same feature. They're built separately now — see
+  // renderGanttFrozen — genuinely outside the scrolling area instead of asking a CSS
+  // technique to hold across that much nesting.
   const rows=[];
-  if(state.showTransfers) rows.push({type:'transfers', id:'transfers'});
-  if(state.showPOB) rows.push({type:'pob', id:'pob'});
   PHASES.forEach(phase=>{
     const all=proj.tasks.filter(x=>x.phase===phase.id);
     const leafCount=all.filter(x=>!x.group).length;
@@ -809,71 +815,99 @@ function buildInlineCols(it){
   return cells;
 }
 
+/* Personnel Transfers / POB — genuinely outside #boardScroll (the scrolling element),
+   not just visually pinned inside it via position:sticky. That was the previous approach
+   and it never reliably held (reported: they scroll away instead of freezing) — see the
+   comment in buildVisibleRows. Being outside the scroller means they can't scroll
+   vertically by construction, but they still need to track its HORIZONTAL scroll, so each
+   row's timeline is clipped (.gantt-frozen .row{overflow:hidden}) and shifted with a
+   transform kept in sync by syncFrozenScroll (wired once to #boardScroll's scroll event). */
+function renderGanttFrozen(proj, rangeStart, rangeEnd, pxPerDay, totalWidth){
+  const wrap=byId('ganttFrozen'); wrap.innerHTML='';
+  if(state.showTransfers){
+    const row=document.createElement('div'); row.className='row transfer-row';
+    const label=document.createElement('div'); label.className='row-label';
+    label.innerHTML=`<span class="name">✈ Personnel Transfers</span>`;
+    const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add a transfer';
+    addBtn.onclick=(e)=>{ e.stopPropagation(); openTransferModal(null); };
+    label.appendChild(addBtn);
+    const tl=document.createElement('div'); tl.className='row-timeline'; tl.style.width=totalWidth+'px';
+    const byDay={};
+    (proj.transfers||[]).forEach(x=>{ (byDay[x.day]=byDay[x.day]||[]).push(x); });
+    Object.values(byDay).forEach(list=>{
+      list.forEach((x,i)=>{
+        const cx=(x.day-rangeStart)*pxPerDay + pxPerDay*0.3 + i*13;
+        const mk=document.createElement('div'); mk.className='transfer-marker '+x.mode; mk.style.left=cx+'px'; mk.textContent=x.mode==='heli'?'✈':'⛴';
+        mk.onclick=(e)=>openTransferPopover(e,x);
+        tl.appendChild(mk);
+      });
+    });
+    row.appendChild(label); row.appendChild(tl); wrap.appendChild(row);
+  }
+  if(state.showPOB){
+    const row=document.createElement('div'); row.className='row pob-row';
+    const label=document.createElement('div'); label.className='row-label';
+    label.innerHTML=`<span class="name">⚠ Total (POB)</span>`;
+    const tl=document.createElement('div'); tl.className='row-timeline'; tl.style.width=totalWidth+'px';
+    const totals=totalHeadcountByDay(proj);
+    let d=rangeStart;
+    while(d<rangeEnd){
+      let runStart=d, val=totals[d]||0;
+      while(d<rangeEnd && (totals[d]||0)===val) d++;
+      if(val>0){
+        const left=(runStart-rangeStart)*pxPerDay, width=(d-runStart)*pxPerDay, ratio=val/POB_CAP;
+        const cell=document.createElement('div'); cell.className='heat-cell';
+        cell.style.left=left+'px'; cell.style.width=Math.max(width-1,2)+'px'; cell.style.top='6px'; cell.style.height='22px';
+        cell.style.background=ratio>1?'var(--critical)':ratio>=0.75?'var(--hold)':'var(--accent-dim)';
+        cell.title=`${val} / ${POB_CAP} POB, ${fmtShort(runStart)}–${fmtShort(d-1)}`;
+        if(width>=14){ const lbl=document.createElement('span'); lbl.className='heat-value'; lbl.textContent=val; cell.appendChild(lbl); }
+        tl.appendChild(cell);
+        if(ratio>1){
+          const badge=document.createElement('div'); badge.className='heat-badge'; badge.textContent='!'; badge.style.left=(left+width/2-7)+'px';
+          badge.title=`Over POB: ${val} vs ${POB_CAP}`;
+          tl.appendChild(badge);
+        }
+      }
+    }
+    row.appendChild(label); row.appendChild(tl); wrap.appendChild(row);
+  }
+  syncFrozenScroll();
+}
+function syncFrozenScroll(){
+  const sl=byId('boardScroll').scrollLeft;
+  document.querySelectorAll('#ganttFrozen .row-timeline').forEach(tl=>{ tl.style.transform='translateX(-'+sl+'px)'; });
+}
+byId('boardScroll').addEventListener('scroll', syncFrozenScroll);
+
 function renderGantt(){
   const proj=project();
   const content=byId('boardContent'); content.innerHTML='';
   if(!leafTasks(proj).length){
     content.innerHTML=`<div class="empty-state" style="height:calc(100vh - 180px)"><div class="icon">＋</div><h3>No schedule yet</h3><p>${proj.name} doesn't have a build-out in WorkFlow yet. Add a task to get started, or switch back to see a populated project.</p><button class="btn primary" id="emptyAdd">+ Add first task</button></div>`;
     byId('emptyAdd').onclick=()=>openTaskModal({milestone:false});
+    byId('ganttFrozen').innerHTML='';
     return;
   }
   const {start:rangeStart, end:rangeEnd}=rangeOf(proj);
   const pxPerDay=PX[state.zoom], totalDays=rangeEnd-rangeStart, totalWidth=totalDays*pxPerDay;
   const rows=buildVisibleRows(proj);
   let y=0; const layout={};
-  rows.forEach(r=>{ const h=heightOf(r); if(r.id!=='transfers'&&r.id!=='pob') layout[r.id]={y,h}; y+=h; });
+  rows.forEach(r=>{ const h=heightOf(r); layout[r.id]={y,h}; y+=h; });
   const rowsHeight=y;
   state.rowLayout=layout; state.rowRangeStart=rangeStart; state.rowPxPerDay=pxPerDay;
   byId('panel-gantt').style.setProperty('--label-w', computeLabelWidth()+'px'); // scoped to this tab only — Resources' own .row-label/.axis-corner must stay at 280px
 
   content.appendChild(buildAxisRow('Task / Phase', rangeStart, totalDays, pxPerDay, state.zoom));
+  renderGanttFrozen(proj, rangeStart, rangeEnd, pxPerDay, totalWidth);
 
   const rowsWrap=document.createElement('div'); rowsWrap.className='rows-wrap';
   rows.forEach(r=>{
     const row=document.createElement('div');
-    row.className='row '+(r.type==='phase'?'phase-row':r.type==='transfers'?'transfer-row':r.type==='pob'?'pob-row':r.type==='group'?'group-row':(r.type==='milestone'?'milestone-row':'task-row'));
-    if(r.type==='pob' && !state.showTransfers) row.classList.add('no-transfers');
+    row.className='row '+(r.type==='phase'?'phase-row':r.type==='group'?'group-row':(r.type==='milestone'?'milestone-row':'task-row'));
     const label=document.createElement('div'); label.className='row-label';
     const tl=document.createElement('div'); tl.className='row-timeline'; tl.style.width=totalWidth+'px';
 
-    if(r.type==='transfers'){
-      label.innerHTML=`<span class="name">✈ Personnel Transfers</span>`;
-      const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add a transfer';
-      addBtn.onclick=(e)=>{ e.stopPropagation(); openTransferModal(null); };
-      label.appendChild(addBtn);
-      const byDay={};
-      (proj.transfers||[]).forEach(x=>{ (byDay[x.day]=byDay[x.day]||[]).push(x); });
-      Object.values(byDay).forEach(list=>{
-        list.forEach((x,i)=>{
-          const cx=(x.day-rangeStart)*pxPerDay + pxPerDay*0.3 + i*13;
-          const mk=document.createElement('div'); mk.className='transfer-marker '+x.mode; mk.style.left=cx+'px'; mk.textContent=x.mode==='heli'?'✈':'⛴';
-          mk.onclick=(e)=>openTransferPopover(e,x);
-          tl.appendChild(mk);
-        });
-      });
-    } else if(r.type==='pob'){
-      label.innerHTML=`<span class="name">⚠ Total (POB)</span>`;
-      const totals=totalHeadcountByDay(proj);
-      let d=rangeStart;
-      while(d<rangeEnd){
-        let runStart=d, val=totals[d]||0;
-        while(d<rangeEnd && (totals[d]||0)===val) d++;
-        if(val>0){
-          const left=(runStart-rangeStart)*pxPerDay, width=(d-runStart)*pxPerDay, ratio=val/POB_CAP;
-          const cell=document.createElement('div'); cell.className='heat-cell';
-          cell.style.left=left+'px'; cell.style.width=Math.max(width-1,2)+'px'; cell.style.top='6px'; cell.style.height='22px';
-          cell.style.background=ratio>1?'var(--critical)':ratio>=0.75?'var(--hold)':'var(--accent-dim)';
-          cell.title=`${val} / ${POB_CAP} POB, ${fmtShort(runStart)}–${fmtShort(d-1)}`;
-          if(width>=14){ const lbl=document.createElement('span'); lbl.className='heat-value'; lbl.textContent=val; cell.appendChild(lbl); }
-          tl.appendChild(cell);
-          if(ratio>1){
-            const badge=document.createElement('div'); badge.className='heat-badge'; badge.textContent='!'; badge.style.left=(left+width/2-7)+'px';
-            badge.title=`Over POB: ${val} vs ${POB_CAP}`;
-            tl.appendChild(badge);
-          }
-        }
-      }
-    } else if(r.type==='phase'){
+    if(r.type==='phase'){
       row.dataset.rowId=r.phase.id; // a phase is a valid drag/indent/"Move to" target too, same as a group
       label.innerHTML=`<span class="chevron">${state.collapsed.has(r.phase.id)?'+':'−'}</span><span class="phase-swatch-btn" title="Click to change this phase's color"></span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
       const swatchEl=label.querySelector('.phase-swatch-btn'); swatchEl.style.background=r.phase.color;

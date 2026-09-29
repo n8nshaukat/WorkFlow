@@ -128,16 +128,27 @@ input,select,textarea{font:inherit; color:inherit;}
 .axis-label.strong{font-weight:600; color:var(--ink);}
 
 .rows-wrap{position:relative;}
+/* Genuinely outside #boardScroll (see renderGanttFrozen in app.js) — flex:0 0 auto keeps
+   it its natural content height in .main's own column layout, never growing/shrinking.
+   overflow:hidden on each row clips its row-timeline (which is exactly as wide as the
+   full date range, same as every other row) to the visible width; app.js keeps the
+   timeline's transform in sync with #boardScroll's horizontal scroll position. */
+.gantt-frozen{flex:0 0 auto;}
+.gantt-frozen .row{overflow:hidden;}
+/* Unlike the main board, #ganttFrozen isn't inside a max-content-width scroll container —
+   it's viewport-width, so flexbox's default flex-shrink:1 would otherwise squeeze
+   row-timeline down to fit instead of leaving it at its true (very wide, whole-date-range)
+   width, breaking every child's left:Xpx positioning inside it. flex-shrink:0 keeps it at
+   full width; .row's own overflow:hidden then clips it to the visible area instead. */
+.gantt-frozen .row-timeline{flex-shrink:0; will-change:transform;}
 .row{display:flex; border-bottom:1px solid var(--line);}
 .row.phase-row{background:var(--surface-2); cursor:pointer;}
-/* Sticky is applied to the label AND timeline independently, not to the row itself — the
-   label already has its own position:sticky;left:0 (below), and nesting a second sticky
-   axis on a sticky PARENT is a known source of browsers failing to stick the child
-   correctly. Keeping both axes on leaf elements, with no sticky ancestor between them and
-   the actual scroll container, sidesteps that entirely. */
-.row.transfer-row{background:var(--info-bg);}
-.row.transfer-row .row-label{position:sticky; top:44px; z-index:3; box-shadow:0 1px 0 var(--line);}
-.row.transfer-row .row-timeline{position:sticky; top:44px; z-index:1; background:var(--info-bg); box-shadow:0 1px 0 var(--line);}
+/* Personnel Transfers / POB no longer live in the scrollable row list at all (see
+   renderGanttFrozen/buildVisibleRows) — position:sticky on them here was a second
+   instance of the exact nested-sticky failure LL-009 already documented once for this
+   codebase, now avoided by not needing stickiness in the first place. */
+.row.transfer-row{background:var(--info-bg); box-shadow:0 1px 0 var(--line);}
+.row.transfer-row .row-timeline{background:var(--info-bg);}
 /* Selected task/milestone: tint the whole row (label + timeline) plus a ring on the bar
    itself, since the bar's own status color already varies a lot (near-blank Upcoming vs.
    solid-filled Done) — a border-only row highlight wouldn't read consistently against both. */
@@ -373,17 +384,13 @@ label.flabel{font-size:11px; color:var(--ink-faint); text-transform:uppercase; l
 .board-scroll::-webkit-scrollbar-thumb, .net-scroll::-webkit-scrollbar-thumb, .guide-scroll::-webkit-scrollbar-thumb, .dash-scroll::-webkit-scrollbar-thumb{background:var(--line-strong); border-radius:6px; border:2px solid var(--surface-2);}
 
 /* ---------- POB lane on the Gantt ---------- */
-/* Pinned right below the sticky Transfers row (44px axis + 34px Transfers) — both rows stay
-   visible while scrolling through a long task list. Both rows are shown-and-frozen or
-   hidden as a single toggle (toolbar chip), never "shown but not frozen" — so when
-   Transfers is hidden, POB just needs its own offset to shrink from 78px to 44px (see
-   .no-transfers below) to sit right below the date header instead of leaving a gap.
-   Same label/timeline split as Transfers above, for the same nested-sticky reason. */
+/* Lives in #ganttFrozen too, right below Transfers when both are shown — see the note on
+   .row.transfer-row above. No offset math needed here anymore (that was for stacking
+   sticky rows at specific pixel offsets down the scrollable list); outside the scroller,
+   it just sits wherever normal flow puts it, under Transfers when both are present. */
 .row.pob-row{height:34px; background:var(--surface);}
-.row.pob-row .row-label{position:sticky; top:78px; z-index:3; background:var(--critical-bg); color:var(--critical); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; box-shadow:0 1px 0 var(--line);}
-.row.pob-row .row-timeline{position:sticky; top:78px; z-index:1; background:var(--surface); box-shadow:0 1px 0 var(--line);}
-.row.pob-row.no-transfers .row-label{top:44px;}
-.row.pob-row.no-transfers .row-timeline{top:44px;}
+.row.pob-row .row-label{background:var(--critical-bg); color:var(--critical); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; box-shadow:0 1px 0 var(--line);}
+.row.pob-row .row-timeline{background:var(--surface); box-shadow:0 1px 0 var(--line);}
 
 /* ---------- resource roster: unassigned ---------- */
 .row.resource-row.unassigned{opacity:.55;}
