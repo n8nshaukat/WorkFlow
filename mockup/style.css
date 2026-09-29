@@ -244,7 +244,13 @@ input,select,textarea{font:inherit; color:inherit;}
 .transfer-marker.heli{background:var(--info-bg); color:var(--info);}
 .transfer-marker.boat{background:var(--accent-dim); color:var(--accent);}
 
-.overlay{position:absolute; top:0; left:280px; pointer-events:none;}
+/* left was hardcoded at 280px — correct only when the label column happened to be exactly
+   its old fixed default. Once the Task/Phase column (or any inline column) became
+   resizable, --label-w could be anything, and every dependency arrow/today-line here was
+   still drawn as if it were still 280px, displaced by the difference. This was very
+   likely the real cause of the "links get displaced" report from a couple of rounds ago —
+   not a reordering or collapse side-effect at all, just this one stale hardcoded value. */
+.overlay{position:absolute; top:0; left:var(--label-w, 280px); pointer-events:none;}
 .dep-path{fill:none; stroke:var(--ink-faint); stroke-width:1.4; opacity:.55; transition:stroke .1s, opacity .1s;}
 .dep-path.linking{stroke:var(--accent); stroke-width:2; stroke-dasharray:4 3; opacity:.9;}
 /* Invisible wide stroke carries the click target (the visible line above is only 1.4px,

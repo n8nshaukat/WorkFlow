@@ -27,6 +27,10 @@
 
 ---
 
+## v44 — found the real "links displaced" bug (LL-014)
+
+A screenshot finally made it undeniable and traceable: `.overlay` (wraps the dependency-arrow SVG + today-line) had `left:280px` hardcoded in CSS, left over from when the Task/Phase label column was a fixed width. Once that column became resizable this session (`state.nameColWidth` → `--label-w`), `.overlay` was the one place still assuming the old fixed 280 — every arrow was drawn off by `(actual label width − 280)` px. Fixed to `left:var(--label-w, 280px)`, same variable already used everywhere else. Resources tab is unaffected (no `--label-w` set in that scope, so it correctly falls back to the 280 default). See LL-014.
+
 ## v43 (same session, fourth round — corrected a wrong fix)
 
 The v42 "bar follows phase color" fix used a left-edge border stripe — wrong, per direct correction: replaced with a translucent wash (`--phase-c` at ~22-28% opacity via `mix-blend-mode`) layered over the status fill, so the bar visibly follows its phase/group header color but less opaque than the header itself, without a border and without covering the status indication. **Lesson for next time: "the bar should follow the header" meant the bar's own color/fill, not a decorative accent — should have asked instead of picking a border as a safe-feeling middle ground.**
