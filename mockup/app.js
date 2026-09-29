@@ -1,7 +1,7 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v44 · 2026-09-29';
+const BUILD_INFO='v45 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
@@ -1568,6 +1568,190 @@ function renderNetwork(){
   });
 }
 
+/* ---------- Dashboard tab ----------
+   Read-only summary view — computes everything live from the current project's real
+   tasks/dependencies/resources (same helpers Gantt/Network/Resources already use), no
+   separate data model of its own. Prototyped first as a standalone mockup
+   (https://claude.ai/artifact/LmYXYxC1zd3TxQ9boxRVc1) with illustrative numbers; this is
+   that same layout wired to real data. */
+function renderDashboard(){
+  const proj=project(); const content=byId('dashContent'); content.innerHTML='';
+  const allLeaf=leafTasks(proj), leaf=allLeaf.filter(x=>!x.milestone), milestones=allLeaf.filter(x=>x.milestone);
+  if(!allLeaf.length){
+    content.innerHTML=`<div class="empty-state" style="height:300px"><div class="icon">▦</div><h3>No schedule yet</h3><p>${proj.name} doesn't have a build-out yet — the dashboard builds itself from tasks once one exists.</p></div>`;
+    return;
+  }
+  const {start:rangeStart, end:rangeEnd}=rangeOf(proj);
+  const done=leaf.filter(x=>x.status==='done').length;
+  const pctDone=leaf.length?Math.round(done/leaf.length*100):0;
+  const passedMs=milestones.filter(m=>m.start<TODAY).length;
+  const {nodes}=computeCPM(proj);
+  const critNodes=Object.values(nodes).filter(n=>n.float===0);
+  const finishDay=Math.max(...allLeaf.map(x=>x.milestone?x.start:x.end));
+  const daysToFinish=finishDay-TODAY;
+  const upcomingMs=milestones.filter(m=>m.start>=TODAY).sort((a,b)=>a.start-b.start);
+  const holdTasks=leaf.filter(x=>x.status==='hold'), critTasks=leaf.filter(x=>x.status==='critical');
+  const riskTasks=[...critTasks,...holdTasks];
+
+  const phaseStats=PHASES.map(phase=>{
+    const kids=leaf.filter(x=>x.phase===phase.id);
+    if(!kids.length) return null;
+    const pct=Math.round(kids.filter(x=>x.status==='done').length/kids.length*100);
+    const holds=kids.filter(x=>x.status==='hold'), crits=kids.filter(x=>x.status==='critical');
+    return {phase, pct, holds, crits, roll:phaseRollup(proj,phase.id)};
+  }).filter(Boolean);
+
+  const totals=totalHeadcountByDay(proj);
+  const peak=Object.values(totals).reduce((a,b)=>Math.max(a,b),0);
+
+  const usedRes=Object.keys(RES).filter(rk=>Object.keys(dailyDemand(proj,rk)).length);
+  const NBUCKETS=8, span=Math.max(rangeEnd-rangeStart,1), bucketLen=span/NBUCKETS;
+  const resBuckets=usedRes.map(rk=>{
+    const days=dailyDemand(proj,rk), cap=RES[rk].cap;
+    const vals=[];
+    for(let b=0;b<NBUCKETS;b++){
+      const bStart=Math.floor(rangeStart+b*bucketLen), bEnd=Math.floor(rangeStart+(b+1)*bucketLen);
+      let sum=0,n=0; for(let d=bStart; d<bEnd; d++){ sum+=(days[d]||0); n++; }
+      vals.push(n?Math.round(sum/n/cap*100):0);
+    }
+    return {name:RES[rk].name, cap, vals};
+  });
+
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const wrap=document.createElement('div'); wrap.className='dash-wrap';
+
+  wrap.innerHTML=`
+    <div class="dash-kpi-row">
+      <div class="dash-kpi">
+        <div class="dash-label">Overall complete</div>
+        <div class="dash-value mono">${pctDone}%</div>
+        <div class="dash-sub">${done} of ${leaf.length} tasks done · ${milestones.length} milestones, ${passedMs} passed</div>
+      </div>
+      <div class="dash-kpi">
+        <div class="dash-label">Finish date</div>
+        <div class="dash-value mono">${fmtShort(finishDay)}</div>
+        <div class="dash-sub${daysToFinish<0?' dash-critical':''}">${daysToFinish>=0?daysToFinish+' days from today':Math.abs(daysToFinish)+' days ago'}</div>
+      </div>
+      <div class="dash-kpi" title="Computed from the Network tab's CPM pass — zero float, no slack. Independent of a task's Status field (a &quot;Flagged critical&quot; status is someone's own note, not a calculation).">
+        <div class="dash-label">On critical path</div>
+        <div class="dash-value mono">${critNodes.length}</div>
+        <div class="dash-sub dash-critical">tasks with zero float — see Network tab</div>
+      </div>
+      <div class="dash-kpi dash-accent">
+        <div class="dash-label">Upcoming milestones</div>
+        <div class="dash-value mono">${upcomingMs.length}</div>
+        <div class="dash-sub">${upcomingMs.length?'next: '+esc(upcomingMs[0].name)+' — '+fmtShort(upcomingMs[0].start):'none scheduled'}</div>
+      </div>
+    </div>
+    <div class="dash-grid2">
+      <div class="dash-col-main">
+        <div class="dash-card">
+          <h2 class="dash-section-title">Phase timeline (shows overlap)</h2>
+          <div class="dash-ptl">
+            ${phaseStats.map(ps=>{
+              const left=Math.max(0,(ps.roll.start-rangeStart)/span*100), width=Math.max((ps.roll.end-ps.roll.start)/span*100,1.5);
+              return `<div class="dash-ptl-row"><span class="dash-ptl-name">${esc(ps.phase.name)}</span><span class="dash-ptl-track"><span class="dash-ptl-bar" style="left:${left}%; width:${width}%; background:${ps.phase.color};" title="${esc(ps.phase.name)}: ${fmtShort(ps.roll.start)} – ${fmtShort(ps.roll.end-1)}"></span></span></div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="dash-card">
+          <h2 class="dash-section-title">Phase progress</h2>
+          ${phaseStats.map(ps=>`
+            <div class="dash-phase-row">
+              <span class="dash-swatch" style="background:${ps.phase.color}"></span>
+              <span class="dash-name">${esc(ps.phase.name)}</span>
+              <span class="dash-track"><span class="dash-fill" style="width:${ps.pct}%; background:${ps.phase.color}"></span></span>
+              <span class="dash-pct mono">${ps.pct}%</span>
+              ${ps.crits.length?`<span class="dash-flag dash-flag-critical" title="${esc(ps.crits.map(t=>t.name).join(', '))}">${ps.crits.length} flagged ⓘ</span>`:''}
+              ${ps.holds.length?`<span class="dash-flag dash-flag-hold" title="${esc(ps.holds.map(t=>t.name).join(', '))}">${ps.holds.length} hold ⓘ</span>`:''}
+            </div>`).join('')}
+        </div>
+        <div class="dash-card">
+          <div class="dash-card-head">
+            <h2 class="dash-section-title" style="margin:0;">POB — persons on board (trend, ${POB_CAP} cap)</h2>
+            <label class="dash-xfer-toggle"><input type="checkbox" id="dashXferToggle" checked> Show transfer movements</label>
+          </div>
+          <div id="dashPobChart"></div>
+          <div class="dash-chart-legend">
+            <span><span class="dash-sw" style="background:var(--accent)"></span>Onboard headcount</span>
+            <span><span class="dash-sw" style="background:var(--critical); border-radius:50%;"></span>POB cap (${POB_CAP})</span>
+            <span><svg width="10" height="10" style="vertical-align:middle; margin-right:4px;"><path d="M5,1 L9,9 L1,9 Z" fill="var(--info)"/></svg>Helicopter</span>
+            <span><svg width="10" height="10" style="vertical-align:middle; margin-right:4px;"><circle cx="5" cy="5" r="4" fill="var(--info)"/></svg>Boat</span>
+          </div>
+        </div>
+        <div class="dash-card">
+          <h2 class="dash-section-title">Resource utilization over time (vs. capacity, ${NBUCKETS} windows across the schedule)</h2>
+          <div class="dash-note">A single peak number hides <em>when</em> — this breaks the same headcount data out per resource, so a peak next to an empty stretch reads differently than one held for weeks.</div>
+          ${resBuckets.length?resBuckets.map(rb=>`
+            <div class="dash-heat-row"><span class="dash-name">${esc(rb.name)} <span class="dash-cap">cap ${rb.cap}</span></span><span class="dash-heat-strip" data-vals="${rb.vals.join(',')}"></span></div>
+          `).join(''):'<div class="dash-note">No resources assigned to any task yet.</div>'}
+          <div class="dash-heat-scale">
+            <span><span class="dash-hs-sw" style="background:color-mix(in srgb, var(--accent) 25%, var(--surface-3));"></span>Low</span>
+            <span><span class="dash-hs-sw" style="background:color-mix(in srgb, var(--accent) 65%, var(--surface-3));"></span>Moderate</span>
+            <span><span class="dash-hs-sw" style="background:var(--accent);"></span>At capacity</span>
+            <span><span class="dash-hs-sw" style="background:var(--critical);"></span>Over capacity</span>
+          </div>
+        </div>
+      </div>
+      <div class="dash-col-side">
+        <div class="dash-card">
+          <h2 class="dash-section-title">Upcoming milestones</h2>
+          ${upcomingMs.length?upcomingMs.map(m=>`<div class="dash-ms-item"><span class="dash-diamond"></span><div><div class="dash-name">${esc(m.name)}</div><div class="dash-date mono">${fmt(m.start)} — in ${m.start-TODAY}d</div></div></div>`).join(''):'<div class="dash-note">None scheduled.</div>'}
+        </div>
+        <div class="dash-card">
+          <h2 class="dash-section-title">Flagged &amp; at risk</h2>
+          ${riskTasks.length?riskTasks.map(t=>`<div class="dash-risk-item"><span class="dash-dot dash-dot-${t.status}"></span><div><div class="dash-name">${esc(t.name)}</div><div class="dash-why">${esc(t.notes||statusLabel(t.status))}</div></div></div>`).join(''):'<div class="dash-note">Nothing flagged right now.</div>'}
+        </div>
+      </div>
+    </div>`;
+  content.appendChild(wrap);
+
+  // POB trend chart — drawn after insertion so it can size itself off the real container
+  const W=560,H=150,padTop=20,axisY=120;
+  const scaleMax=Math.max(peak*1.15, POB_CAP*1.15, 1);
+  const xOf=d=>(d-rangeStart)/span*W;
+  const yOf=v=>axisY-(v/scaleMax)*(axisY-padTop);
+  let dPts=[]; for(let d=rangeStart; d<rangeEnd; d++) dPts.push([xOf(d), yOf(totals[d]||0)]);
+  const line=dPts.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  const area=line+` L${W},${axisY} L0,${axisY} Z`;
+  const capY=yOf(POB_CAP);
+  const xferMarkers=(proj.transfers||[]).map(x=>{
+    const cx=xOf(x.day);
+    const shape=x.mode==='heli' ? `<path d="M0,0 L6,10 L-6,10 Z" fill="var(--info)"/>` : `<circle r="4.5" fill="var(--info)"/>`;
+    return `<g transform="translate(${cx.toFixed(1)},${axisY})">${shape}<title>${esc(fmt(x.day))} — ${esc(x.label)} (${x.mode})</title></g>`;
+  }).join('');
+  const svgEl=document.createElement('div'); svgEl.className='dash-chart-wrap';
+  svgEl.innerHTML=`<svg viewBox="0 0 ${W} ${H+10}" width="100%" height="${H}" style="overflow:visible;">
+    <line x1="0" y1="${capY.toFixed(1)}" x2="${W}" y2="${capY.toFixed(1)}" stroke="var(--critical)" stroke-width="1" stroke-dasharray="3 4"/>
+    <text x="${W+2}" y="${(capY-4).toFixed(1)}" font-size="10" fill="var(--critical)" font-family="IBM Plex Mono, monospace">${POB_CAP} cap</text>
+    <line x1="0" y1="0" x2="0" y2="${axisY}" stroke="var(--line)" stroke-width="1"/>
+    <line x1="0" y1="${axisY}" x2="${W}" y2="${axisY}" stroke="var(--line)" stroke-width="1"/>
+    <path d="${area}" fill="var(--accent)" opacity="0.14"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="0" y="${axisY+14}" font-size="10" fill="var(--ink-faint)" font-family="IBM Plex Sans, sans-serif">${esc(fmtShort(rangeStart))}</text>
+    <text x="${W}" y="${axisY+14}" font-size="10" text-anchor="end" fill="var(--ink-faint)" font-family="IBM Plex Sans, sans-serif">${esc(fmtShort(rangeEnd-1))}</text>
+    <g id="dashXferMarkers">${xferMarkers}</g>
+  </svg>`;
+  byId('dashPobChart').appendChild(svgEl);
+  const xferToggle=byId('dashXferToggle');
+  if(xferToggle) xferToggle.onchange=()=>{ const g=byId('dashXferMarkers'); if(g) g.style.display=xferToggle.checked?'':'none'; };
+
+  content.querySelectorAll('.dash-heat-strip').forEach(strip=>{
+    const vals=strip.dataset.vals.split(',').map(Number);
+    vals.forEach(v=>{
+      const cell=document.createElement('span'); cell.className='dash-cell';
+      let bg;
+      if(v>100) bg='var(--critical)';
+      else if(v>=100) bg='var(--accent)';
+      else if(v>=50) bg='color-mix(in srgb, var(--accent) '+Math.round(30+v*0.7)+'%, var(--surface-3))';
+      else if(v>0) bg='color-mix(in srgb, var(--accent) '+Math.round(15+v*0.6)+'%, var(--surface-3))';
+      else bg='var(--surface-3)';
+      cell.style.background=bg; cell.title=v+'% of capacity, this window';
+      strip.appendChild(cell);
+    });
+  });
+}
+
 /* ---------- Guide tab ---------- */
 function renderGuide(){
   const content=byId('guideContent');
@@ -1930,6 +2114,7 @@ function renderAll(){
   if(state.tab==='gantt') renderGantt();
   else if(state.tab==='resources'){ renderShiftTable(); renderResourcesPanel(); }
   else if(state.tab==='network') renderNetwork();
+  else if(state.tab==='dashboard') renderDashboard();
   else if(state.tab==='guide') renderGuide();
 }
 
