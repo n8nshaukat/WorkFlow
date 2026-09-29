@@ -41,6 +41,9 @@ let PHASES = [
   {id:'p5', name:'Riser & Umbilical Cutting', color:'var(--p5)'},
   {id:'p6', name:'Chain Cutting & Tow-Away', color:'var(--p6)'},
 ];
+// Captured before anything can overwrite PHASES[i].color, so "reset to default" (see
+// resetPhaseColor() in app.js) has the original theme-adaptive var(--pN) to go back to.
+const PHASE_DEFAULT_COLORS={}; PHASES.forEach(p=>{ PHASE_DEFAULT_COLORS[p.id]=p.color; });
 
 function normPreds(p){ if(!p) return []; return Array.isArray(p)?p.slice():[p]; }
 function t(id,phase,name,start,end,resources,preds,status,pct,notes,history){

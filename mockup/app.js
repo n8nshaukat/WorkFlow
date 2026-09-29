@@ -1,12 +1,12 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v40 · 2026-09-29';
+const BUILD_INFO='v41 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
 const state={projectId:'p1', tab:'gantt', zoom:'week', collapsed:new Set(), selectedId:null, editingResId:null, pendingResources:[], pendingPreds:[], newTaskRes:[], showPOB:true, editingXferId:null, xfManifest:[], visibleCols:new Set(),
-  multiSel:new Set(), creatingGroup:false, moveMenuOpen:false, renamingGroupId:null, nameColWidth:280, pinTransfers:true, pinPOB:true};
+  multiSel:new Set(), creatingGroup:false, moveMenuOpen:false, renamingGroupId:null, nameColWidth:280, showTransfers:true, colWidths:{}};
 
 /* ---------- WBS grouping (summary tasks) ----------
    A group is a task object with group:true living in the same proj.tasks array,
@@ -27,11 +27,24 @@ function rollupOf(proj, g){
 /* the row that actually represents `id` right now: itself if visible, otherwise
    its group (when that group is collapsed) — used to re-anchor dependency arrows
    instead of letting them vanish when a group closes. */
+/* Re-anchors a task/milestone to whatever visible row its dependency arrow should actually
+   land on: its group's summary bar if the group is collapsed, or further out, the phase
+   header's own rollup bar if the WHOLE PHASE is collapsed. Previously only the group case
+   was handled — collapsing a phase (not a group) left arrows into/out of its tasks
+   pointing at a row `layout` had no entry for at all (since buildVisibleRows skips
+   rendering a collapsed phase's children entirely), so the SVG block's own
+   `if(!layout[...]) return` silently dropped the arrow instead of re-anchoring it — it
+   just vanished, which is very likely what read as "links get displaced" when a group/
+   phase gets collapsed. */
 function anchorTask(proj, id){
   const t=proj.tasks.find(x=>x.id===id); if(!t) return null;
-  if(!t.parent) return t;
-  const g=proj.tasks.find(x=>x.id===t.parent);
-  return (g && g.collapsed) ? g : t;
+  let node=t;
+  if(t.parent){
+    const g=proj.tasks.find(x=>x.id===t.parent);
+    if(g && g.collapsed) node=g;
+  }
+  if(state.collapsed.has(node.phase)) return {id:'ph-'+node.phase, phaseHeader:true, phase:node.phase};
+  return node;
 }
 function cleanupEmptyGroup(proj, groupId){
   if(!groupId) return;
@@ -197,11 +210,20 @@ const INLINE_COLS=[
   {key:'wbs', label:'WBS', width:64},
   {key:'srcDur', label:'Source duration', width:100},
 ];
+/* Per-column widths default to INLINE_COLS' own numbers but are overridable (drag a
+   resize handle in the axis header — see buildAxisRow) and live in state, not on
+   INLINE_COLS itself, so a reset-to-default is just "delete the override". Safe to
+   build a real per-column header for these (unlike a per-row-type-dependent field)
+   because every task/milestone row renders the same visible columns in the same order
+   at the same fixed widths — the row-label's `.name` span is the only elastic element
+   (flex:1), so it's what absorbs any leftover/shortfall space, and the icols after it
+   always land at the same pixel offsets from the right edge on every row. */
+function colWidth(key){ const c=INLINE_COLS.find(x=>x.key===key); return (state.colWidths[key]!=null?state.colWidths[key]:(c?c.width:80)); }
 function computeLabelWidth(){
   let w=state.nameColWidth;
   // +8, not the column's own width alone — .row-label has `gap:8px` between every flex
   // child, so each added column consumes its width plus one more gap, not just its width.
-  INLINE_COLS.forEach(c=>{ if(state.visibleCols.has(c.key)) w+=c.width+8; });
+  INLINE_COLS.forEach(c=>{ if(state.visibleCols.has(c.key)) w+=colWidth(c.key)+8; });
   return w;
 }
 function attachNameColResize(handle){
@@ -215,6 +237,18 @@ function attachNameColResize(handle){
       });
     }
     function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); renderAll(); }
+    document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
+  });
+}
+function attachColResize(handle, key){
+  handle.addEventListener('pointerdown', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const startX=e.clientX, orig=colWidth(key);
+    function onMove(ev){
+      state.colWidths[key]=Math.max(40, Math.min(320, orig+(ev.clientX-startX)));
+      renderGantt();
+    }
+    function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); }
     document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
   });
 }
@@ -325,6 +359,10 @@ function openPhaseColorPicker(phase, swatchEl){
   _phaseColorInput.oninput=()=>{ phase.color=_phaseColorInput.value; swatchEl.style.background=phase.color; };
   _phaseColorInput.onchange=()=>{ phase.color=_phaseColorInput.value; persistConfig(); renderAll(); showToast('✓ Phase color updated.'); };
   _phaseColorInput.click();
+}
+function resetPhaseColor(phase){
+  const def=PHASE_DEFAULT_COLORS[phase.id]; if(!def) return;
+  phase.color=def; persistConfig(); renderAll(); showToast('✓ Phase color reset to default.');
 }
 function rgbToHex(rgb){
   const m=rgb.match(/\d+/g); if(!m) return '#888888';
@@ -577,10 +615,17 @@ function renderToolbar(){
   printBtn.title='Print or save as PDF. If this button does nothing, use your browser’s own Print command (Ctrl/Cmd+P) instead — the page is styled for it either way.';
   printBtn.onclick=()=>{ try{ window.print(); }catch(e){ showToast('Use your browser’s Print command (Ctrl/Cmd+P) instead.'); } };
   extra.appendChild(importBtn); extra.appendChild(exportBtn); extra.appendChild(printBtn);
+  if(state.tab==='gantt'){
+    const xferToggle=document.createElement('button'); xferToggle.className='chip'+(state.showTransfers?' ok':''); xferToggle.style.cursor='pointer';
+    xferToggle.textContent=(state.showTransfers?'👁 Personnel Transfers: On':'Personnel Transfers: Off');
+    xferToggle.title='Show or hide the Personnel Transfers row — shown, it stays frozen at the top while you scroll';
+    xferToggle.onclick=()=>{ state.showTransfers=!state.showTransfers; renderAll(); };
+    extra.appendChild(xferToggle);
+  }
   if(state.tab==='gantt'||state.tab==='resources'){
     const pobToggle=document.createElement('button'); pobToggle.className='chip'+(state.showPOB?' ok':''); pobToggle.style.cursor='pointer';
     pobToggle.textContent=(state.showPOB?'👁 POB tracking: On':'POB tracking: Off');
-    pobToggle.title='Show or hide the POB (persons on board) row and banner';
+    pobToggle.title='Show or hide the POB (persons on board) row — shown, it stays frozen at the top while you scroll';
     pobToggle.onclick=()=>{ state.showPOB=!state.showPOB; renderAll(); };
     extra.appendChild(pobToggle);
   }
@@ -621,11 +666,24 @@ function renderToolbar(){
 /* ---------- shared axis builder ---------- */
 function buildAxisRow(cornerLabel, rangeStart, totalDays, pxPerDay, zoom){
   const axisRow=document.createElement('div'); axisRow.className='axis-row';
-  const corner=document.createElement('div'); corner.className='axis-corner'; corner.textContent=cornerLabel;
+  const corner=document.createElement('div'); corner.className='axis-corner';
   if(cornerLabel==='Task / Phase'){ // only the Gantt tab's label column is resizable — Resources' stays fixed at 280px (see computeLabelWidth's scoping note)
+    corner.classList.add('axis-corner-split');
+    const nameCell=document.createElement('div'); nameCell.className='axis-corner-cell'; nameCell.style.flex=`0 0 ${state.nameColWidth}px`; nameCell.textContent=cornerLabel;
     const colResize=document.createElement('div'); colResize.className='col-resize-handle'; colResize.title='Drag to resize the Task/Phase column';
     attachNameColResize(colResize);
-    corner.appendChild(colResize);
+    nameCell.appendChild(colResize);
+    corner.appendChild(nameCell);
+    INLINE_COLS.forEach(c=>{
+      if(!state.visibleCols.has(c.key)) return;
+      const cell=document.createElement('div'); cell.className='axis-corner-cell'; cell.style.flex=`0 0 ${colWidth(c.key)}px`; cell.textContent=c.label;
+      const resize=document.createElement('div'); resize.className='col-resize-handle'; resize.title=`Drag to resize the ${c.label} column`;
+      attachColResize(resize, c.key);
+      cell.appendChild(resize);
+      corner.appendChild(cell);
+    });
+  } else {
+    corner.textContent=cornerLabel;
   }
   const dates=document.createElement('div'); dates.className='axis-dates'; dates.style.width=(totalDays*pxPerDay)+'px';
   for(let i=0;i<=totalDays;i++){
@@ -644,7 +702,8 @@ function buildAxisRow(cornerLabel, rangeStart, totalDays, pxPerDay, zoom){
 
 /* ---------- Gantt tab ---------- */
 function buildVisibleRows(proj){
-  const rows=[{type:'transfers', id:'transfers'}];
+  const rows=[];
+  if(state.showTransfers) rows.push({type:'transfers', id:'transfers'});
   if(state.showPOB) rows.push({type:'pob', id:'pob'});
   PHASES.forEach(phase=>{
     const all=proj.tasks.filter(x=>x.phase===phase.id);
@@ -707,7 +766,7 @@ function buildInlineCols(it){
   const cells=[];
   INLINE_COLS.forEach(c=>{
     if(!state.visibleCols.has(c.key)) return;
-    const cell=document.createElement('div'); cell.className='icol'; cell.style.flex=`0 0 ${c.width}px`;
+    const cell=document.createElement('div'); cell.className='icol'; cell.style.flex=`0 0 ${colWidth(c.key)}px`;
     cell.addEventListener('click', e=>e.stopPropagation());
     if(c.key==='wbs'){
       cell.classList.add('wbs-ref'); cell.textContent=it.wbsRef||'—'; if(it.wbsRef) cell.title='WBS '+it.wbsRef;
@@ -763,16 +822,12 @@ function renderGantt(){
   rows.forEach(r=>{
     const row=document.createElement('div');
     row.className='row '+(r.type==='phase'?'phase-row':r.type==='transfers'?'transfer-row':r.type==='pob'?'pob-row':r.type==='group'?'group-row':(r.type==='milestone'?'milestone-row':'task-row'));
-    if(r.type==='transfers' && !state.pinTransfers) row.classList.add('unpinned');
-    if(r.type==='pob'){ if(!state.pinPOB) row.classList.add('unpinned'); if(!state.pinTransfers) row.classList.add('transfer-unpinned'); }
+    if(r.type==='pob' && !state.showTransfers) row.classList.add('no-transfers');
     const label=document.createElement('div'); label.className='row-label';
     const tl=document.createElement('div'); tl.className='row-timeline'; tl.style.width=totalWidth+'px';
 
     if(r.type==='transfers'){
       label.innerHTML=`<span class="name">✈ Personnel Transfers</span>`;
-      const pinBtn=document.createElement('button'); pinBtn.className='pin-btn'+(state.pinTransfers?' active':''); pinBtn.textContent='📌'; pinBtn.title=state.pinTransfers?'Pinned — click to let it scroll with the rest':'Not pinned — click to freeze it in view while scrolling';
-      pinBtn.onclick=(e)=>{ e.stopPropagation(); state.pinTransfers=!state.pinTransfers; renderGantt(); };
-      label.appendChild(pinBtn);
       const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add a transfer';
       addBtn.onclick=(e)=>{ e.stopPropagation(); openTransferModal(null); };
       label.appendChild(addBtn);
@@ -788,9 +843,6 @@ function renderGantt(){
       });
     } else if(r.type==='pob'){
       label.innerHTML=`<span class="name">⚠ Total (POB)</span>`;
-      const pinBtn=document.createElement('button'); pinBtn.className='pin-btn'+(state.pinPOB?' active':''); pinBtn.textContent='📌'; pinBtn.title=state.pinPOB?'Pinned — click to let it scroll with the rest':'Not pinned — click to freeze it in view while scrolling';
-      pinBtn.onclick=(e)=>{ e.stopPropagation(); state.pinPOB=!state.pinPOB; renderGantt(); };
-      label.appendChild(pinBtn);
       const totals=totalHeadcountByDay(proj);
       let d=rangeStart;
       while(d<rangeEnd){
@@ -813,9 +865,14 @@ function renderGantt(){
       }
     } else if(r.type==='phase'){
       row.dataset.rowId=r.phase.id; // a phase is a valid drag/indent/"Move to" target too, same as a group
-      label.innerHTML=`<span class="chevron${state.collapsed.has(r.phase.id)?' collapsed':''}"></span><span class="phase-swatch clickable" title="Click to change this phase's color">${''}</span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
-      const swatchEl=label.querySelector('.phase-swatch'); swatchEl.style.background=r.phase.color;
+      label.innerHTML=`<span class="chevron${state.collapsed.has(r.phase.id)?' collapsed':''}"></span><span class="phase-swatch-btn" title="Click to change this phase's color"></span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
+      const swatchEl=label.querySelector('.phase-swatch-btn'); swatchEl.style.background=r.phase.color;
       swatchEl.addEventListener('click', e=>{ e.stopPropagation(); openPhaseColorPicker(r.phase, swatchEl); });
+      if(PHASE_DEFAULT_COLORS[r.phase.id] && r.phase.color!==PHASE_DEFAULT_COLORS[r.phase.id]){
+        const resetBtn=document.createElement('button'); resetBtn.className='phase-color-reset'; resetBtn.textContent='↺'; resetBtn.title='Reset to default color';
+        resetBtn.addEventListener('click', e=>{ e.stopPropagation(); resetPhaseColor(r.phase); });
+        label.appendChild(resetBtn);
+      }
       const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add task to this phase';
       addBtn.onclick=(e)=>{ e.stopPropagation(); openTaskModal({milestone:false, phase:r.phase.id}); };
       label.appendChild(addBtn);
@@ -960,9 +1017,11 @@ function renderGantt(){
       if(!fromA || !toA || fromA.id===toA.id) return; // both folded into the same visible summary
       if(!layout[fromA.id]||!layout[toA.id]) return;
       const fromY=layout[fromA.id].y+layout[fromA.id].h/2, toY=layout[toA.id].y+layout[toA.id].h/2;
-      const fromX = fromA.group ? (rollupOf(proj,fromA).end-rangeStart)*pxPerDay
+      const fromX = fromA.phaseHeader ? (phaseRollup(proj,fromA.phase).end-rangeStart)*pxPerDay
+        : fromA.group ? (rollupOf(proj,fromA).end-rangeStart)*pxPerDay
         : fromA.milestone ? (fromA.start-rangeStart)*pxPerDay+pxPerDay*0.3+9 : (fromA.end-rangeStart)*pxPerDay;
-      const toX = toA.group ? (rollupOf(proj,toA).start-rangeStart)*pxPerDay
+      const toX = toA.phaseHeader ? (phaseRollup(proj,toA.phase).start-rangeStart)*pxPerDay
+        : toA.group ? (rollupOf(proj,toA).start-rangeStart)*pxPerDay
         : toA.milestone ? (toA.start-rangeStart)*pxPerDay+pxPerDay*0.3-4 : (toA.start-rangeStart)*pxPerDay;
       const midX=fromX+Math.max((toX-fromX)/2,8);
       const d=`M ${fromX} ${fromY} H ${midX} V ${toY} H ${toX}`;
