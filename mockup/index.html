@@ -10,7 +10,8 @@
       <h2>Projects</h2>
       <div class="proj-list" id="projList"></div>
       <button class="btn ghost small" id="newProjBtn" style="width:100%; margin-top:6px;">+ New project</button>
-      <button class="btn ghost small" id="loadDemoBtn" style="width:100%; margin-top:6px;" title="Replaces everything with the sample Galoc decommissioning schedule — for trying the app out, not for real use">↺ Load demo data</button>
+      <button class="btn ghost small" id="loadDemoBtn" style="width:100%; margin-top:6px;" title="Replaces everything with a sample decommissioning schedule (fictional field/company names) — for trying the app out, not for real use">↺ Load demo data</button>
+      <button class="btn ghost small" id="clearDataBtn" style="width:100%; margin-top:6px; color:var(--critical);" title="Deletes every project, resource and setting — cannot be undone">🗑 Clear all data</button>
     </div>
     <div class="side-section hide-mobile legend">
       <h2>Status key</h2>
@@ -42,6 +43,10 @@
       <div class="title-block">
         <h2 id="projTitle">—</h2>
         <div class="sub" id="projSub">—</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:4px; margin-left:auto;">
+        <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled>↶</button>
+        <button class="icon-btn" id="redoBtn" title="Redo (Ctrl+Y)" disabled>↷</button>
       </div>
       <div id="toolbarExtra" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;"></div>
     </div>
@@ -84,6 +89,7 @@
     </div>
   </div>
   <div class="drawer-body">
+    <div class="checkbox-row"><input type="checkbox" id="dIsMilestone"><label for="dIsMilestone">This is a milestone (zero duration)</label></div>
     <div class="field-row">
       <div class="field-group anchor-field" id="dStartGroup"><label class="flabel">Start <button type="button" class="anchor-pin" id="dPinStart" title="Pin Start — it stays fixed while you edit End or Days">📌</button></label><input type="date" id="dStart"></div>
       <div class="field-group anchor-field" id="dEndGroup"><label class="flabel">End <button type="button" class="anchor-pin" id="dPinEnd" title="Pin End — it stays fixed while you edit Start or Days">📌</button></label><input type="date" id="dEnd"></div>

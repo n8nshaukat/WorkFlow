@@ -14,23 +14,26 @@ const SEED_SHIFTS = [
 const SEED_RES = {
   core:{name:'Core Crew', cap:33, shift:'day'},
   abs:{name:'ABS Surveyor', cap:1, shift:'day'},
-  cm:{name:'Construction Manager (ICON)', cap:1, shift:'day'},
+  cm:{name:'Construction Manager (Contractor)', cap:1, shift:'day'},
   process:{name:'Process Team', cap:4, shift:'night'},
   maint:{name:'Maintenance', cap:2, shift:'day'},
-  deltac:{name:'Delta Construction', cap:3, shift:'day'},
-  deltas:{name:'Delta Scaffolder', cap:2, shift:'day'},
-  npg:{name:'NPG Rep', cap:1, shift:'day'},
+  deltac:{name:'Construction Crew', cap:3, shift:'day'},
+  deltas:{name:'Scaffolder', cap:2, shift:'day'},
+  npg:{name:'Client Rep', cap:1, shift:'day'},
   marine:{name:'Marine', cap:3, shift:'night'},
   offtake:{name:'Offtake Team', cap:3, shift:'day'},
   steward:{name:'Additional Steward', cap:1, shift:'night'},
   tow:{name:'Tow Master', cap:1, shift:'day'},
   tmt:{name:'TMT Crew', cap:4, shift:'day'},
-  cement:{name:'Cementing Crew (Halliburton)', cap:6, shift:'day'},
+  cement:{name:'Cementing Crew (Contractor)', cap:6, shift:'day'},
 };
 
 const SEED_POB_CAP = 48;
 
-const PHASES = [
+// `let`, not `const` — a phase's color can be recolored from its swatch in the Gantt
+// (click it), which persists as a {phaseId: color} map in config/main and is reapplied
+// on top of these defaults at load time. See applyPhaseColors() in app.js.
+let PHASES = [
   {id:'p1', name:'Preparation for Shutdown', color:'var(--p1)'},
   {id:'p2', name:'P&A Campaign — Well Kill', color:'var(--p2)'},
   {id:'p3', name:'Process Plant Deactivation', color:'var(--p3)'},
@@ -47,22 +50,22 @@ function m(id,phase,name,date,preds){
   return {id,phase,name,start:D(date),end:D(date),milestone:true,preds:normPreds(preds),history:[]};
 }
 
-const galocTasks = [
+const kestrelTasks = [
   t('t1','p1','Mobilize decommissioning crew','2027-03-07','2027-03-09',[['core',33],['abs',1],['cm',1],['npg',1]],null,'done',100,'Standard mob — flight manifest confirmed for the 13th crew change.'),
   t('t2','p1','Overflow the separators','2027-03-15','2027-03-15',[['process',4]],'t1','done',100),
   m('m1','p1','CoP — End of Production','2027-03-16','t2'),
   t('t4','p1','Well isolation — water flood risers (Ph1 & Ph2)','2027-03-16','2027-03-17',[['marine',2],['process',2]],'m1','done',100),
-  t('t5','p1','Install cement spool — Phase 1 & 2','2027-03-17','2027-03-19',[['deltac',3]],'t4','done',100,'',[{date:'2027-03-18',text:'End date moved +1 day by M. Santos — weather delay on Phase 2 hub connection.'}]),
+  t('t5','p1','Install cement spool — Phase 1 & 2','2027-03-17','2027-03-19',[['deltac',3]],'t4','done',100,'',[{date:'2027-03-18',text:'End date moved +1 day by Ops — weather delay on Phase 2 hub connection.'}]),
 
-  t('t6','p2','Mob cementing package — Labuan → Galoc transit','2027-03-07','2027-03-16',[['cement',6]],null,'done',100),
+  t('t6','p2','Mob cementing package — Labuan → Kestrel transit','2027-03-07','2027-03-16',[['cement',6]],null,'done',100),
   t('t7','p2','Rig up cement & pumping spread','2027-03-18','2027-03-20',[['cement',6]],'t6','done',100),
   t('t9','p2','Well kill — Phase 2 wells','2027-03-22','2027-03-23',[['marine',2],['process',2]],'t7','done',100),
-  t('t8','p2','Wait on Weather (WOW)','2027-03-24','2027-03-25',[['marine',1]],'t9','hold',0,'25kt gusts forecast — Marine standby only, no P&A work.',[{date:'2027-03-23',text:'Created from 48h forecast — Halliburton pumping spread stood down pending clearance.'}]),
-  t('t10','p2','P&A Galoc-5','2027-03-25','2027-03-26',[['cement',6]],'t8','upcoming',0),
-  t('t11','p2','P&A Galoc-6B','2027-03-26','2027-03-27',[['cement',6]],'t10','upcoming',0),
+  t('t8','p2','Wait on Weather (WOW)','2027-03-24','2027-03-25',[['marine',1]],'t9','hold',0,'25kt gusts forecast — Marine standby only, no P&A work.',[{date:'2027-03-23',text:'Created from 48h forecast — cementing pumping spread stood down pending clearance.'}]),
+  t('t10','p2','P&A Kestrel-5','2027-03-25','2027-03-26',[['cement',6]],'t8','upcoming',0),
+  t('t11','p2','P&A Kestrel-6B','2027-03-26','2027-03-27',[['cement',6]],'t10','upcoming',0),
   t('t12','p2','Well kill — Phase 1 wells','2027-03-27','2027-03-28',[['marine',2],['process',2]],'t11','upcoming',0),
-  t('t13','p2','P&A Galoc-3ST1','2027-03-28','2027-03-29',[['cement',6]],'t12','upcoming',0),
-  t('t14','p2','P&A Galoc-4','2027-03-29','2027-03-30',[['cement',6]],'t13','upcoming',0),
+  t('t13','p2','P&A Kestrel-3ST1','2027-03-28','2027-03-29',[['cement',6]],'t12','upcoming',0),
+  t('t14','p2','P&A Kestrel-4','2027-03-29','2027-03-30',[['cement',6]],'t13','upcoming',0),
   m('m2','p2','DSV Departs','2027-03-31','t14'),
 
   t('t15','p3','Process plant draining, import line & flushing','2027-03-17','2027-03-18',[['process',4]],'t4','done',100),
@@ -98,9 +101,9 @@ const TRANSFERS = [
 ].map(x=>({...x, day:D(x.date)}));
 
 const SEED_PROJECTS = [
-  {id:'galoc', name:'Galoc FPSO Decommissioning', status:'Active', statusClass:'active-status', tasks:galocTasks, transfers:TRANSFERS},
-  {id:'nido', name:'Nido Platform Refit', status:'Planning', statusClass:'planning-status', tasks:[], transfers:[]},
-  {id:'tanjung', name:'Tanjung Riser Replacement', status:'On Hold', statusClass:'hold-status', tasks:[], transfers:[]},
+  {id:'kestrel', name:'Kestrel FPSO Decommissioning', status:'Active', statusClass:'active-status', tasks:kestrelTasks, transfers:TRANSFERS},
+  {id:'osprey', name:'Osprey Platform Refit', status:'Planning', statusClass:'planning-status', tasks:[], transfers:[]},
+  {id:'harrier', name:'Harrier Riser Replacement', status:'On Hold', statusClass:'hold-status', tasks:[], transfers:[]},
 ];
 
 /* The real default: a genuinely empty starting point, not the demo above.

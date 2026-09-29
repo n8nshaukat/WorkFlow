@@ -1,12 +1,12 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v39 · 2026-09-29';
+const BUILD_INFO='v40 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
 const state={projectId:'p1', tab:'gantt', zoom:'week', collapsed:new Set(), selectedId:null, editingResId:null, pendingResources:[], pendingPreds:[], newTaskRes:[], showPOB:true, editingXferId:null, xfManifest:[], visibleCols:new Set(),
-  multiSel:new Set(), creatingGroup:false, moveMenuOpen:false, renamingGroupId:null};
+  multiSel:new Set(), creatingGroup:false, moveMenuOpen:false, renamingGroupId:null, nameColWidth:280, pinTransfers:true, pinPOB:true};
 
 /* ---------- WBS grouping (summary tasks) ----------
    A group is a task object with group:true living in the same proj.tasks array,
@@ -96,7 +96,34 @@ function applyReparent(proj, taskId, targetId){
   cleanupEmptyGroup(proj, oldParent);
   return {kind:'newgroup', name:g.name};
 }
+/* Manual row order within a phase (or within a group) — an explicit sortIndex, used only
+   when set; tasks without one keep sorting by date, same as before this feature existed
+   (see the comparator in buildVisibleRows). Dropping onto the top portion of another row
+   reorders next to it instead of grouping with it (grouping still happens on the rest of
+   the row — see attachRowDragHandle). */
+function applyReorder(proj, taskId, targetId, before){
+  const t=proj.tasks.find(x=>x.id===taskId), target=proj.tasks.find(x=>x.id===targetId);
+  if(!t || !target || t.id===target.id) return null;
+  if(t.phase!==target.phase || (t.parent||null)!==(target.parent||null)) return null; // only reorder within the same phase/group — drop mid-row to move between containers instead
+  const siblings=proj.tasks.filter(x=>x.phase===t.phase && (x.parent||null)===(t.parent||null))
+    .sort((a,b)=>{
+      const as=a.sortIndex, bs=b.sortIndex;
+      if(as!=null && bs!=null) return as-bs;
+      if(as!=null) return -1; if(bs!=null) return 1;
+      const ad=a.group?rollupOf(proj,a).start:a.start, bd=b.group?rollupOf(proj,b).start:b.start;
+      return ad-bd;
+    });
+  const from=siblings.indexOf(t); if(from<0) return null;
+  siblings.splice(from,1);
+  let toIdx=siblings.indexOf(target);
+  if(!before) toIdx+=1;
+  siblings.splice(toIdx,0,t);
+  siblings.forEach((s,i)=>{ s.sortIndex=i; });
+  pushHistory(t, `Reordered — moved ${before?'before':'after'} "${target.name}".`);
+  return {kind:'reorder', name:target.name};
+}
 function reparentToast(res){
+  if(res && res.kind==='reorder') return `✓ Reordered.`;
   if(!res) return null;
   return res.kind==='phase' ? `✓ Moved to "${res.name}".`
     : res.kind==='newgroup' ? `✓ Created "${res.name}" with 2 tasks.`
@@ -122,24 +149,37 @@ function findRowDropTarget(x,y,excludeId){
   }
   return null;
 }
+/* Top ~30% of a task/milestone row = reorder (drop indicator line, no grouping); the rest
+   of the row = the existing group/reparent behavior. A phase or group header target always
+   groups, regardless of where on it you drop — reordering only makes sense between two
+   plain siblings. */
 function attachRowDragHandle(handle, taskId){
   handle.addEventListener('pointerdown', e=>{
     e.stopPropagation(); e.preventDefault();
     document.body.classList.add('row-dragging');
-    let hoverEl=null;
+    let hoverEl=null, hoverBefore=false;
+    function classify(ev){
+      const el=findRowDropTarget(ev.clientX, ev.clientY, taskId);
+      if(!el) return {el:null, before:false};
+      const isReorderable=el.classList.contains('task-row')||el.classList.contains('milestone-row');
+      if(!isReorderable) return {el, before:false};
+      const r=el.getBoundingClientRect();
+      return {el, before:(ev.clientY-r.top) < r.height*0.3};
+    }
     function onMove(ev){
-      if(hoverEl) hoverEl.classList.remove('drop-hover');
-      hoverEl=findRowDropTarget(ev.clientX, ev.clientY, taskId);
-      if(hoverEl) hoverEl.classList.add('drop-hover');
+      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); }
+      const c=classify(ev);
+      hoverEl=c.el; hoverBefore=c.before;
+      if(hoverEl) hoverEl.classList.add(hoverBefore?'drop-before':'drop-hover');
     }
     function onUp(ev){
       document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp);
       document.body.classList.remove('row-dragging');
-      if(hoverEl) hoverEl.classList.remove('drop-hover');
-      const target=findRowDropTarget(ev.clientX, ev.clientY, taskId);
-      if(!target) return;
+      if(hoverEl){ hoverEl.classList.remove('drop-hover'); hoverEl.classList.remove('drop-before'); }
+      const c=classify(ev);
+      if(!c.el) return;
       const proj=project();
-      const res=applyReparent(proj, taskId, target.dataset.rowId);
+      const res=c.before ? applyReorder(proj, taskId, c.el.dataset.rowId, true) : applyReparent(proj, taskId, c.el.dataset.rowId);
       if(res){ persistProject(proj); renderAll(); showToast(reparentToast(res)); }
     }
     document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
@@ -158,11 +198,25 @@ const INLINE_COLS=[
   {key:'srcDur', label:'Source duration', width:100},
 ];
 function computeLabelWidth(){
-  let w=280;
+  let w=state.nameColWidth;
   // +8, not the column's own width alone — .row-label has `gap:8px` between every flex
   // child, so each added column consumes its width plus one more gap, not just its width.
   INLINE_COLS.forEach(c=>{ if(state.visibleCols.has(c.key)) w+=c.width+8; });
   return w;
+}
+function attachNameColResize(handle){
+  handle.addEventListener('pointerdown', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const startX=e.clientX, orig=state.nameColWidth;
+    function onMove(ev){
+      state.nameColWidth=Math.max(160, Math.min(560, orig+(ev.clientX-startX)));
+      byId('panel-gantt').querySelectorAll('.axis-corner, .row-label').forEach(el=>{
+        el.style.width=computeLabelWidth()+'px'; el.style.flexBasis=computeLabelWidth()+'px';
+      });
+    }
+    function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); renderAll(); }
+    document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
+  });
 }
 
 /* is `candidateId` reachable by walking forward (successors) from `ancestorId`? used to block circular dependencies */
@@ -221,6 +275,7 @@ async function loadState(){
       const cfg=cfgSnap.exists?cfgSnap.data():{};
       RES=cfg.resources||{...BLANK_RES}; SHIFTS=cfg.shifts||SEED_SHIFTS.map(s=>({...s}));
       POB_CAP=(typeof cfg.pobCap==='number')?cfg.pobCap:BLANK_POB_CAP;
+      applyPhaseColors(cfg.phaseColors);
 
       const idxSnap=await DB.doc('config/projects').get();
       const ids=(idxSnap.exists && Array.isArray(idxSnap.data().ids) && idxSnap.data().ids.length) ? idxSnap.data().ids : BLANK_PROJECTS.map(p=>p.id);
@@ -249,11 +304,110 @@ async function loadState(){
   if(!PROJECTS.find(p=>p.id===state.projectId)) state.projectId=PROJECTS[0].id;
 }
 function persistProject(proj){
+  recordUndoPoint();
   if(!DB||!proj) return;
   DB.doc('projects/'+proj.id).set({name:proj.name, status:proj.status, statusClass:proj.statusClass, tasks:serializeTasks(proj.tasks), transfers:serializeTransfers(proj.transfers||[])}).catch(()=>{});
 }
-function persistConfig(){ if(!DB) return; DB.doc('config/main').set({resources:RES, shifts:SHIFTS, pobCap:POB_CAP}).catch(()=>{}); }
-function persistProjectIndex(){ if(!DB) return; DB.doc('config/projects').set({ids:PROJECTS.map(p=>p.id)}).catch(()=>{}); }
+function applyPhaseColors(map){ if(!map) return; PHASES.forEach(p=>{ if(map[p.id]) p.color=map[p.id]; }); }
+function phaseColorsForSave(){ const m={}; PHASES.forEach(p=>{ m[p.id]=p.color; }); return m; }
+/* Picking a custom color fixes it to that one hex value, light or dark mode — the default
+   var(--pN) colors are theme-adaptive, but there's no sane way to keep that once someone's
+   deliberately chosen a specific color, so a custom pick opts out of the adaptive behavior. */
+let _phaseColorInput=null;
+function openPhaseColorPicker(phase, swatchEl){
+  if(!_phaseColorInput){
+    _phaseColorInput=document.createElement('input'); _phaseColorInput.type='color';
+    _phaseColorInput.style.cssText='position:fixed; opacity:0; width:1px; height:1px; pointer-events:none;';
+    document.body.appendChild(_phaseColorInput);
+  }
+  const computed=getComputedStyle(swatchEl).backgroundColor;
+  _phaseColorInput.value=rgbToHex(computed);
+  _phaseColorInput.oninput=()=>{ phase.color=_phaseColorInput.value; swatchEl.style.background=phase.color; };
+  _phaseColorInput.onchange=()=>{ phase.color=_phaseColorInput.value; persistConfig(); renderAll(); showToast('✓ Phase color updated.'); };
+  _phaseColorInput.click();
+}
+function rgbToHex(rgb){
+  const m=rgb.match(/\d+/g); if(!m) return '#888888';
+  return '#'+m.slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('');
+}
+function persistConfig(){ recordUndoPoint(); if(!DB) return; DB.doc('config/main').set({resources:RES, shifts:SHIFTS, pobCap:POB_CAP, phaseColors:phaseColorsForSave()}).catch(()=>{}); }
+function persistProjectIndex(){ recordUndoPoint(); if(!DB) return; DB.doc('config/projects').set({ids:PROJECTS.map(p=>p.id)}).catch(()=>{}); }
+
+/* ---------- undo / redo ----------
+   No per-field diffing — each undo step is a full deep-clone snapshot of every project,
+   the resource/shift roster and the POB cap, taken right before whichever persist* call
+   just committed a change. `lastSnapshot` always holds "the state as of the previous
+   commit", so pushing it onto undoStack before refreshing it to the new current state is
+   what makes the stack correct. Calls that fire in the same synchronous burst (e.g. Load
+   demo data does persistConfig + persistProjectIndex + one persistProject per project)
+   collapse into a single undo step via the coalesce window, rather than one step per call. */
+let undoStack=[], redoStack=[], lastSnapshot=null, _undoCoalesceT=0, _restoringUndo=false;
+const UNDO_COALESCE_MS=120, UNDO_LIMIT=50;
+function snapshotAll(){
+  return {
+    projects: JSON.parse(JSON.stringify(PROJECTS)),
+    res: JSON.parse(JSON.stringify(RES)),
+    shifts: JSON.parse(JSON.stringify(SHIFTS)),
+    pobCap: POB_CAP,
+    projectId: state.projectId,
+  };
+}
+function restoreSnapshot(snap){
+  PROJECTS=JSON.parse(JSON.stringify(snap.projects));
+  RES=JSON.parse(JSON.stringify(snap.res));
+  SHIFTS=JSON.parse(JSON.stringify(snap.shifts));
+  POB_CAP=snap.pobCap;
+  state.projectId=PROJECTS.find(p=>p.id===snap.projectId) ? snap.projectId : (PROJECTS[0] && PROJECTS[0].id);
+  state.selectedId=null; state.multiSel.clear(); state.moveMenuOpen=false; state.creatingGroup=false;
+}
+function recordUndoPoint(){
+  if(_restoringUndo) return;
+  const now=Date.now();
+  if(lastSnapshot && (now-_undoCoalesceT)>=UNDO_COALESCE_MS){
+    undoStack.push(lastSnapshot);
+    if(undoStack.length>UNDO_LIMIT) undoStack.shift();
+    redoStack.length=0;
+  }
+  lastSnapshot=snapshotAll();
+  _undoCoalesceT=now;
+  updateUndoRedoButtons();
+}
+function persistAllForUndo(){ persistConfig(); persistProjectIndex(); PROJECTS.forEach(persistProject); }
+function doUndo(){
+  if(!undoStack.length) return;
+  _restoringUndo=true;
+  redoStack.push(snapshotAll());
+  restoreSnapshot(undoStack.pop());
+  persistAllForUndo();
+  _restoringUndo=false;
+  lastSnapshot=snapshotAll(); _undoCoalesceT=Date.now();
+  renderAll(); updateUndoRedoButtons();
+  showToast('↶ Undone.');
+}
+function doRedo(){
+  if(!redoStack.length) return;
+  _restoringUndo=true;
+  undoStack.push(snapshotAll());
+  restoreSnapshot(redoStack.pop());
+  persistAllForUndo();
+  _restoringUndo=false;
+  lastSnapshot=snapshotAll(); _undoCoalesceT=Date.now();
+  renderAll(); updateUndoRedoButtons();
+  showToast('↷ Redone.');
+}
+function updateUndoRedoButtons(){
+  const u=byId('undoBtn'), r=byId('redoBtn');
+  if(u) u.disabled=!undoStack.length;
+  if(r) r.disabled=!redoStack.length;
+}
+document.addEventListener('keydown', e=>{
+  if(!(e.ctrlKey||e.metaKey)) return;
+  const k=e.key.toLowerCase();
+  if(k==='z' && !e.shiftKey){ e.preventDefault(); doUndo(); }
+  else if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); doRedo(); }
+});
+byId('undoBtn').onclick=doUndo;
+byId('redoBtn').onclick=doRedo;
 
 /* ---------- import / export / print ---------- */
 async function getDownloads(){
@@ -468,6 +622,11 @@ function renderToolbar(){
 function buildAxisRow(cornerLabel, rangeStart, totalDays, pxPerDay, zoom){
   const axisRow=document.createElement('div'); axisRow.className='axis-row';
   const corner=document.createElement('div'); corner.className='axis-corner'; corner.textContent=cornerLabel;
+  if(cornerLabel==='Task / Phase'){ // only the Gantt tab's label column is resizable — Resources' stays fixed at 280px (see computeLabelWidth's scoping note)
+    const colResize=document.createElement('div'); colResize.className='col-resize-handle'; colResize.title='Drag to resize the Task/Phase column';
+    attachNameColResize(colResize);
+    corner.appendChild(colResize);
+  }
   const dates=document.createElement('div'); dates.className='axis-dates'; dates.style.width=(totalDays*pxPerDay)+'px';
   for(let i=0;i<=totalDays;i++){
     const dnum=rangeStart+i, dt=dayToDate(dnum), dow=dt.getUTCDay();
@@ -497,11 +656,17 @@ function buildVisibleRows(proj){
     // beneath it (indented) when it's expanded — single level of nesting, on purpose.
     const top=all.filter(x=>!x.parent).sort((a,b)=>{
       const as=a.group?rollupOf(proj,a).start:a.start, bs=b.group?rollupOf(proj,b).start:b.start;
+      if(a.sortIndex!=null && b.sortIndex!=null) return a.sortIndex-b.sortIndex;
+      if(a.sortIndex!=null) return -1; if(b.sortIndex!=null) return 1;
       return as-bs;
     });
     top.forEach(x=>{
       if(x.group){
-        const kids=childrenOf(proj,x.id).sort((a,b)=>a.start-b.start);
+        const kids=childrenOf(proj,x.id).sort((a,b)=>{
+          if(a.sortIndex!=null && b.sortIndex!=null) return a.sortIndex-b.sortIndex;
+          if(a.sortIndex!=null) return -1; if(b.sortIndex!=null) return 1;
+          return a.start-b.start;
+        });
         rows.push({type:'group', id:x.id, item:x, phase, count:kids.length});
         if(!x.collapsed) kids.forEach(k=>rows.push({type:k.milestone?'milestone':'task', id:k.id, item:k, phase, indent:true}));
       } else {
@@ -598,11 +763,16 @@ function renderGantt(){
   rows.forEach(r=>{
     const row=document.createElement('div');
     row.className='row '+(r.type==='phase'?'phase-row':r.type==='transfers'?'transfer-row':r.type==='pob'?'pob-row':r.type==='group'?'group-row':(r.type==='milestone'?'milestone-row':'task-row'));
+    if(r.type==='transfers' && !state.pinTransfers) row.classList.add('unpinned');
+    if(r.type==='pob'){ if(!state.pinPOB) row.classList.add('unpinned'); if(!state.pinTransfers) row.classList.add('transfer-unpinned'); }
     const label=document.createElement('div'); label.className='row-label';
     const tl=document.createElement('div'); tl.className='row-timeline'; tl.style.width=totalWidth+'px';
 
     if(r.type==='transfers'){
       label.innerHTML=`<span class="name">✈ Personnel Transfers</span>`;
+      const pinBtn=document.createElement('button'); pinBtn.className='pin-btn'+(state.pinTransfers?' active':''); pinBtn.textContent='📌'; pinBtn.title=state.pinTransfers?'Pinned — click to let it scroll with the rest':'Not pinned — click to freeze it in view while scrolling';
+      pinBtn.onclick=(e)=>{ e.stopPropagation(); state.pinTransfers=!state.pinTransfers; renderGantt(); };
+      label.appendChild(pinBtn);
       const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add a transfer';
       addBtn.onclick=(e)=>{ e.stopPropagation(); openTransferModal(null); };
       label.appendChild(addBtn);
@@ -618,6 +788,9 @@ function renderGantt(){
       });
     } else if(r.type==='pob'){
       label.innerHTML=`<span class="name">⚠ Total (POB)</span>`;
+      const pinBtn=document.createElement('button'); pinBtn.className='pin-btn'+(state.pinPOB?' active':''); pinBtn.textContent='📌'; pinBtn.title=state.pinPOB?'Pinned — click to let it scroll with the rest':'Not pinned — click to freeze it in view while scrolling';
+      pinBtn.onclick=(e)=>{ e.stopPropagation(); state.pinPOB=!state.pinPOB; renderGantt(); };
+      label.appendChild(pinBtn);
       const totals=totalHeadcountByDay(proj);
       let d=rangeStart;
       while(d<rangeEnd){
@@ -640,7 +813,9 @@ function renderGantt(){
       }
     } else if(r.type==='phase'){
       row.dataset.rowId=r.phase.id; // a phase is a valid drag/indent/"Move to" target too, same as a group
-      label.innerHTML=`<span class="chevron${state.collapsed.has(r.phase.id)?' collapsed':''}"></span><span class="phase-swatch" style="background:${r.phase.color}"></span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
+      label.innerHTML=`<span class="chevron${state.collapsed.has(r.phase.id)?' collapsed':''}"></span><span class="phase-swatch clickable" title="Click to change this phase's color">${''}</span><span class="name">${r.phase.name}</span><span class="dur mono">${r.count}</span>`;
+      const swatchEl=label.querySelector('.phase-swatch'); swatchEl.style.background=r.phase.color;
+      swatchEl.addEventListener('click', e=>{ e.stopPropagation(); openPhaseColorPicker(r.phase, swatchEl); });
       const addBtn=document.createElement('button'); addBtn.className='addrow-btn'; addBtn.textContent='+'; addBtn.title='Add task to this phase';
       addBtn.onclick=(e)=>{ e.stopPropagation(); openTaskModal({milestone:false, phase:r.phase.id}); };
       label.appendChild(addBtn);
@@ -721,10 +896,15 @@ function renderGantt(){
       // was silently clipping away anything positioned outside the bar's own box, including
       // the entire enlarged hit-area added a few rounds ago. That's very likely the real
       // reason grabbing the knob has been unreliable this whole time, not a drop-logic bug.
+      // Knobs sit near the TOP of the bar (bar spans y 6-28), not centered on it — see the
+      // CSS comment on .bar-link-knob::before for why: a mid-bar knob with the old wide
+      // vertical hit-area covered almost the entire edge column, so the resize handle
+      // underneath was nearly ungrabbable. Leaving y 12-28 free of the knob keeps both
+      // usable: grab near the top corner to link, anywhere below it to resize.
       const knobL=document.createElement('div'); knobL.className='bar-link-knob left'; knobL.title='Drag to link a predecessor onto this task';
-      knobL.style.left=(left-6)+'px'; knobL.style.top='11px';
+      knobL.style.left=(left-6)+'px'; knobL.style.top='2px';
       const knobR=document.createElement('div'); knobR.className='bar-link-knob right'; knobR.title='Drag onto another task to make this one its predecessor';
-      knobR.style.left=(left+width-6)+'px'; knobR.style.top='11px';
+      knobR.style.left=(left+width-6)+'px'; knobR.style.top='2px';
       tl.appendChild(knobL); tl.appendChild(knobR);
       attachLinkKnob(knobR,it,'end');
       attachLinkKnob(knobL,it,'start');
@@ -1487,6 +1667,19 @@ byId('dDur').addEventListener('change', ()=>{ if(!byId('dDur').disabled) recompu
 [['dPinStart','start'],['dPinEnd','end'],['dPinDur','duration']].forEach(([id,val])=>{
   byId(id).addEventListener('click', ()=>{ state.drawerAnchor=val; updateAnchorUI(byId('dEnd').disabled); });
 });
+function updateDrawerMsUI(milestone){
+  byId('dEnd').disabled=milestone; byId('dDur').disabled=milestone; byId('dStatus').disabled=milestone; byId('dPct').disabled=milestone;
+  updateAnchorUI(milestone);
+  byId('dStatusPill').textContent=milestone?'Milestone':statusLabel(byId('dStatus').value);
+  byId('dStatusPill').className='pill '+(milestone?'p-progress':pillClass(byId('dStatus').value));
+  byId('dResourcesGroup').style.display=milestone?'none':'flex';
+}
+byId('dIsMilestone').addEventListener('change', ()=>{
+  const ms=byId('dIsMilestone').checked;
+  if(ms){ byId('dEnd').value=byId('dStart').value; byId('dDur').value=''; }
+  else if(!byId('dDur').value){ byId('dEnd').value=iso(D(byId('dStart').value)+1); byId('dDur').value=1; }
+  updateDrawerMsUI(ms);
+});
 function openDrawer(id){
   const proj=project(), it=proj.tasks.find(x=>x.id===id); if(!it) return;
   state.selectedId=id;
@@ -1499,15 +1692,12 @@ function openDrawer(id){
   byId('dTitle').textContent=it.name;
   const pp=byId('dPhasePill'); pp.textContent=phase.name; pp.className='pill'; pp.style.cssText='background:transparent;border:1px solid var(--line-strong);color:var(--ink-dim);';
   const milestone=!!it.milestone;
-  byId('dEnd').disabled=milestone; byId('dDur').disabled=milestone; byId('dStatus').disabled=milestone; byId('dPct').disabled=milestone;
   byId('dStart').value=iso(it.start); byId('dEnd').value=milestone?iso(it.start):iso(it.end-1);
   byId('dDur').value=milestone?'':(it.end-it.start);
-  updateAnchorUI(milestone);
   byId('dStatus').value=milestone?'upcoming':it.status;
   byId('dPct').value=milestone?0:it.pct; byId('dPctBar').style.width=(milestone?0:it.pct)+'%';
-  byId('dStatusPill').textContent=milestone?'Milestone':statusLabel(it.status);
-  byId('dStatusPill').className='pill '+(milestone?'p-progress':pillClass(it.status));
-  byId('dResourcesGroup').style.display=milestone?'none':'flex';
+  byId('dIsMilestone').checked=milestone;
+  updateDrawerMsUI(milestone);
   renderResPick(byId('dResources'), state.pendingResources);
   renderPredChips(proj, it);
   byId('dNotes').value=it.notes||'';
@@ -1519,28 +1709,32 @@ function openDrawer(id){
 function closeDrawer(){ byId('scrim').classList.remove('open'); byId('drawer').classList.remove('open'); state.selectedId=null; resetDeleteBtn(); if(state.tab==='gantt') renderGantt(); }
 function saveDrawer(){
   const proj=project(), it=proj.tasks.find(x=>x.id===state.selectedId); if(!it) return;
-  if(it.milestone){
+  const wasMilestone=!!it.milestone, nowMilestone=byId('dIsMilestone').checked;
+  const changed=[];
+  if(wasMilestone!==nowMilestone) changed.push(nowMilestone?'converted to a milestone':'converted to a task');
+  if(nowMilestone){
     const newStart=D(byId('dStart').value);
-    const changed=[];
-    if(newStart!==it.start){ it.start=newStart; it.end=newStart; changed.push('date moved to '+fmtShort(newStart)); }
-    if(JSON.stringify(it.preds||[])!==JSON.stringify(state.pendingPreds)){ it.preds=state.pendingPreds.slice(); changed.push('dependencies updated'); }
-    if(changed.length) pushHistory(it, changed.join(', ')+'.');
+    if(newStart!==it.start||it.end!==newStart) changed.push('date moved to '+fmtShort(newStart));
+    it.start=newStart; it.end=newStart; it.milestone=true;
+    it.status='upcoming'; it.pct=0; it.resources=[];
+    if(JSON.stringify(it.preds||[])!==JSON.stringify(state.pendingPreds)) changed.push('dependencies updated');
+    it.preds=state.pendingPreds.slice();
   } else {
     const newStart=D(byId('dStart').value), newEnd=D(byId('dEnd').value)+1;
-    const changed=[];
-    if(newStart!==it.start||newEnd!==it.end) changed.push('dates moved');
+    if(newStart!==it.start||newEnd!==it.end||wasMilestone) changed.push('dates moved');
     if(byId('dStatus').value!==it.status) changed.push('status → '+statusLabel(byId('dStatus').value));
     let newPct=Math.max(0,Math.min(100,Number(byId('dPct').value)||0));
     if(byId('dStatus').value==='done') newPct=100;
     if(byId('dStatus').value==='upcoming') newPct=0;
     if(newPct!==it.pct) changed.push('progress → '+newPct+'%');
     it.start=newStart; it.end=Math.max(newEnd,newStart+1); it.status=byId('dStatus').value; it.pct=newPct; it.anchor=state.drawerAnchor;
+    it.milestone=false;
     if(JSON.stringify(it.resources||[])!==JSON.stringify(state.pendingResources)) changed.push('resources updated');
     it.resources=state.pendingResources.map(r=>[r[0],r[1]]);
     if(JSON.stringify(it.preds||[])!==JSON.stringify(state.pendingPreds)) changed.push('dependencies updated');
     it.preds=state.pendingPreds.slice();
-    if(changed.length) pushHistory(it, changed.join(', ')+'.');
   }
+  if(changed.length) pushHistory(it, changed.join(', ')+'.');
   it.notes=byId('dNotes').value;
   persistProject(proj);
   closeDrawer(); renderAll();
@@ -1611,6 +1805,16 @@ byId('loadDemoBtn').onclick=()=>{
   persistConfig(); persistProjectIndex(); PROJECTS.forEach(persistProject);
   renderAll();
   showToast('✓ Demo data loaded — this app starts empty by default; this button was for trying it out.');
+};
+let clearDataArm=false;
+byId('clearDataBtn').onclick=()=>{
+  if(!clearDataArm){ clearDataArm=true; byId('clearDataBtn').textContent='Confirm — delete everything?'; setTimeout(()=>{ clearDataArm=false; byId('clearDataBtn').textContent='🗑 Clear all data'; },3000); return; }
+  clearDataArm=false; byId('clearDataBtn').textContent='🗑 Clear all data';
+  PROJECTS=BLANK_PROJECTS.map(p=>({...p})); RES={...BLANK_RES}; SHIFTS=SEED_SHIFTS.map(s=>({...s})); POB_CAP=BLANK_POB_CAP;
+  state.projectId=PROJECTS[0].id; state.selectedId=null; state.multiSel.clear();
+  persistConfig(); persistProjectIndex(); PROJECTS.forEach(persistProject);
+  renderAll();
+  showToast('✓ All data cleared.');
 };
 byId('projModalClose').onclick=()=>byId('projModalScrim').classList.remove('open');
 byId('pjCancel').onclick=()=>byId('projModalScrim').classList.remove('open');
@@ -1776,8 +1980,9 @@ function applyTheme(mode){
   if(mode==='light'||mode==='dark') document.documentElement.setAttribute('data-theme',mode);
   else document.documentElement.removeAttribute('data-theme');
   const btn=byId('themeToggle');
-  btn.textContent=THEME_ICONS[mode]||THEME_ICONS.system;
-  btn.title='Theme: '+(THEME_LABELS[mode]||THEME_LABELS.system)+' — click to change';
+  const label=THEME_LABELS[mode]||THEME_LABELS.system;
+  btn.innerHTML=`<span class="ic">${THEME_ICONS[mode]||THEME_ICONS.system}</span><span>${label}</span>`;
+  btn.title='Theme: '+label+' — click to change';
 }
 let themeMode=getStoredTheme()||'system';
 applyTheme(themeMode);
@@ -1787,4 +1992,4 @@ byId('themeToggle').onclick=()=>{
   applyTheme(themeMode);
 };
 
-loadState().then(renderAll);
+loadState().then(()=>{ undoStack=[]; redoStack=[]; lastSnapshot=snapshotAll(); _undoCoalesceT=Date.now(); updateUndoRedoButtons(); renderAll(); });

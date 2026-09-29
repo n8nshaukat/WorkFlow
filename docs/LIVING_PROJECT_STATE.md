@@ -1,5 +1,5 @@
 # WORKFLOW - LIVING PROJECT STATE
-**Version:** 0.7
+**Version:** 0.8
 **Last Updated:** 2026-09-29
 **Auto-Update:** Every session close
 
@@ -12,16 +12,37 @@
 - `docs/LESSONS_LEARNED.md` — skim headers; LL-007–LL-009 (frozen-array/CSS-clipping debugging saga) and LL-011 (a `return` skipping a safety check) before touching drag/CSS-positioning code, anything mutating `db`-loaded data, or restructuring a function with an early exit; LL-010 (apostrophe-breaks-JS-string) and LL-012 (a CSS class referenced only in JS, never defined) before hand-editing `app.js`/`style.css` together.
 
 **The interactive mockup is live and is the current source of truth for UX decisions**, not this doc's prose:
-**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 39, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
+**https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** (currently version 40, matches the in-app build tag). **A source snapshot also lives in this repo at `mockup/`** (for external review without touching claude.ai's own sharing) — same 5 files as the live artifact, and now the working copy edits are made to before publishing.
 
 **Known unresolved: the "sample" (AI-interpret) capability is stuck declined** for the user's own account/browser on this artifact — `sample.json(...)` throws `not_granted` every time, no permission prompt on retry (confirmed: reloaded, retried, still declined). Platform/browser permission state, not a code bug — nothing in `app.js`/`import.js` fixes it directly. Affects the AI-interpret fallback for unstructured pasted text and for a resource-file PDF that doesn't match the deterministic manning-list pattern. Everything else (deterministic WBS-table parsing, Excel/CSV, the deterministic resource-file pattern) works without it. Remove this note once resolved.
 
 **Immediate next actions, in order:**
-1. User-test v39 against the real schedule PDF and the manning-list PDF — confirm the crash fix holds end-to-end and the new deterministic resource-file parsing actually picks up real names/counts.
-2. The user's actual schedule PDF turned out to be a **Gantt/timeline-view export** (task names + repeating date columns), not the WBS/Duration/Start/Finish table format the deterministic parser handles — it correctly falls through to AI-interpret today, which is blocked by the stuck permission above. Waiting on the full extracted text (not just a preview) before building a dedicated parser for this format — see LL-006's own discipline on this.
-3. Share the mockup with coworkers via **email invite** (not the bare public link — see "Sharing with Coworkers" below).
-4. **Resolve the open distribution/architecture decision** (below) before starting real Supabase/Netlify work.
-5. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
+1. **Live-browser-test v40** — the whole "v40 — Large UX Feedback Batch" section above was built without a browser this session (no browser tool available); it's the top priority to verify before trusting any of it, same as v35's WBS grouping needed.
+2. User-test v39/v40 against the real schedule PDF and the manning-list PDF — confirm the crash fix holds end-to-end and the new deterministic resource-file parsing actually picks up real names/counts.
+3. The user's actual schedule PDF turned out to be a **Gantt/timeline-view export** (task names + repeating date columns), not the WBS/Duration/Start/Finish table format the deterministic parser handles — it correctly falls through to AI-interpret today, which is blocked by the stuck permission above. Waiting on the full extracted text (not just a preview) before building a dedicated parser for this format — see LL-006's own discipline on this.
+4. Build the Dashboard/Analytics mockup (see v40 section above for proposed content) — or confirm the content list with the user first if they want to steer it.
+5. Share the mockup with coworkers via **email invite** (not the bare public link — see "Sharing with Coworkers" below).
+6. **Resolve the open distribution/architecture decision** (below) before starting real Supabase/Netlify work.
+7. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
+
+---
+
+## v40 — Large UX Feedback Batch (built, NOT browser-tested this session)
+
+User gave a batch of ~14 UX asks after a live-testing pass on v39. All built directly into the mockup this session except Dashboard/Analytics (deferred — see below). **None of this has been opened in a real browser yet** (no browser tool available this session) — syntax-checked with `node --check` only. Treat as needing the same live-testing pass v35's WBS grouping got before trusting it.
+
+- **Undo/redo** — full deep-clone snapshot stack (not per-field diffing), captured automatically inside `persistProject`/`persistConfig`/`persistProjectIndex` (every mutation already funnels through one of those three). Synchronous bursts of persist calls (e.g. "Load demo data") coalesce into one undo step via a 120ms window. Ctrl+Z / Ctrl+Y, plus ↶/↷ buttons in the toolbar.
+- **Clear all data** — new sidebar button next to "Load demo data", same 3-second arm-to-confirm pattern already used for demo-load and task-delete.
+- **Drag-to-reorder within a phase/group** — extended the existing row-grip drag (previously group/reparent-only) rather than building a separate mechanism: dropping on the **top ~30%** of another task/milestone row reorders next to it (new `sortIndex` field, persisted, falls back to date-sort when unset); dropping lower down still groups/reparents as before. Phase headers and groups always group regardless of drop position (reordering isn't meaningful there).
+- **Resize handle vs. link knob** — root cause was the knob's invisible hit-area extending ±10px vertically while centered mid-bar, at higher z-index than the resize handle, so it silently ate almost the entire edge column. Moved the knob to the bar's top corner and shrunk the hit-area to ±3px — resize handle now has the lower ~2/3 of the edge free.
+- **Personnel Transfers / POB rows** — each now has its own 📌 pin toggle (label area) instead of being unconditionally sticky; unpinning falls back to scrolling normally. POB's sticky offset self-adjusts when Transfers is unpinned above it.
+- **Theme toggle** — was a bare 26px icon button with muted colors, hard to notice per the user. Now has a visible text label (System/Light/Dark) plus accent-colored border/background.
+- **Milestone toggle in the task drawer** — previously milestone-vs-task was fixed at creation. The edit drawer now has the same "This is a milestone" checkbox as the New Task modal, and `saveDrawer` handles converting either direction.
+- **Task/Phase column resize** — drag handle on the axis-corner's right edge, resizing `state.nameColWidth` (default 280, clamped 160–560). Scoped to the Gantt tab only (Resources tab stays fixed at 280px, unchanged). **Per-column resize for the optional inline columns (Start/End/Days/%/Status/WBS/Source-duration) was NOT built** — there's no header row for them to anchor a resize handle to (they render inline per-row with no column headers at all), and building one safely without a browser to verify layout felt too risky this session. Real gap if the user wants it.
+- **Phase color labeling** — phase colors (`PHASES[i].color`, previously `var(--pN)` theme-adaptive constants) are now editable: click a phase row's swatch to open a native color picker. A custom pick is a flat hex, so it opts out of light/dark adaptiveness once set (documented tradeoff, not a bug). Persisted as a `{phaseId: color}` map in `config/main`, reapplied over the defaults on load via `applyPhaseColors()`.
+- **Demo data anonymized** — the seed dataset was a real, previously-identifying project (Galoc FPSO, a real Philippines field) plus real vendor/personnel names (Halliburton, ICON, a named person in a history entry). Renamed to fictional "Kestrel FPSO Decommissioning" (+ "Osprey"/"Harrier" for the other two demo projects), vendor names genericized to role-only ("Contractor", "Construction Crew" etc.), personal name in a history entry replaced with "Ops".
+- **"Click to add/remove group member"** — remove already existed (✕ button on a grouped task); add already exists via checkbox multi-select + "Move to" action bar, or the ⇥ indent button. No new code — flagged to the user as already covered, not literally "click the task to add it" which isn't built.
+- **Dashboard/Analytics tab — NOT built, deliberately deferred.** New page, no existing layout to react to — recommended (to the user, agreed implicitly, not re-confirmed) doing a standalone mockup first, same pattern WBS grouping used (`CBCtqMziWrn2QaSe9ABtrt`), rather than guessing at final layout live in the real app. Proposed starting content: % complete + schedule variance, critical-path health, resource utilization/overallocation, upcoming milestones, POB/transfer trend, overdue/at-risk count, phase rollup bars. **Next session: build that prototype, or confirm the content list first if the user wants to steer it before a mockup gets built.**
 
 ---
 
@@ -125,14 +146,17 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 - **2026-09-22 (second session):** PDF/WBS-table importer built from scratch against a real document; ten rounds of live-tested Gantt/drawer UX fixes; coworker-sharing and architecture-direction questions substantively resolved. See LL-006–LL-009. Mockup at v29.
 - **2026-09-26:** WBS grouping designed as a standalone prototype first, approved, then built into the real Gantt across three rounds as live testing on the user's own schedule surfaced gaps (phase-as-group-target, then the WBS-aware importer). See "WBS Grouping" above and LL-010. Mockup at v35.
 - **2026-09-28:** Source snapshot checked into this repo (`mockup/`) for external review. Real PDF-import crash found via a live stack trace and fixed (LL-011). Resource-aware import (name-matching + review step, multi-source) and a Light/Dark/System theme toggle built. Mockup at v37.
-- **2026-09-29:** Blank-by-default boot state (demo now opt-in via a sidebar button); dark-mode chip contrast bug fixed (LL-012); demo-example placeholders genericized; import-modal spacing hardened (v38). Diagnosed the PDF-import complaint down to two separate, real causes: the user's schedule PDF is a Gantt/timeline-view export the deterministic parser correctly doesn't match (needs AI-interpret, or a dedicated parser once a full text sample is available), and the AI/"sample" capability is stuck declined in the user's browser. Added PDF support (deterministic pattern + AI fallback) to the resource-file import either way, plus roster-only opt-in additions (v39).
+- **2026-09-29 (second session):** Large batch of UX feedback from live testing of v39, built directly into the mockup — undo/redo, clear-data (with confirm), drag-to-reorder within a phase, resize-handle/link-knob conflict fix, individual pin toggles for Transfers/POB, more visible theme toggle, milestone toggle in the edit drawer, Task/Phase column resize, clickable phase colors, and demo-data anonymization (real field/vendor/personal names replaced with fictional ones). Dashboard/Analytics deliberately deferred to its own mockup first. Mockup at v40 — **not yet live-browser-tested**, see "v40 — Large UX Feedback Batch" above.
+- **2026-09-29 (first session):** Blank-by-default boot state (demo now opt-in via a sidebar button); dark-mode chip contrast bug fixed (LL-012); demo-example placeholders genericized; import-modal spacing hardened (v38). Diagnosed the PDF-import complaint down to two separate, real causes: the user's schedule PDF is a Gantt/timeline-view export the deterministic parser correctly doesn't match (needs AI-interpret, or a dedicated parser once a full text sample is available), and the AI/"sample" capability is stuck declined in the user's browser. Added PDF support (deterministic pattern + AI fallback) to the resource-file import either way, plus roster-only opt-in additions (v39).
 
 ---
 
 ## Next Steps
 
-1. User-tests v39 — confirm the manning-list PDF now parses via the resource file input, and report back on the stuck AI-permission issue (browser site-settings / incognito / different browser worth trying).
-2. If/when the full extracted text of the Gantt-view schedule PDF is available, build a dedicated deterministic parser for it rather than depending on the stuck AI path.
-3. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
-4. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
-5. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
+1. **Live-browser-test v40's whole UX batch** — nothing in it has been opened in a real browser yet.
+2. User-tests v39/v40 — confirm the manning-list PDF now parses via the resource file input, and report back on the stuck AI-permission issue (browser site-settings / incognito / different browser worth trying).
+3. If/when the full extracted text of the Gantt-view schedule PDF is available, build a dedicated deterministic parser for it rather than depending on the stuck AI path.
+4. Build the Dashboard/Analytics mockup.
+5. Share via email invite with coworkers; watch for any real friction from the "separate projects, no live sync" model as more people actually use it.
+6. Get an explicit answer on hosted-vs-standalone (evidence leans hosted); update `PROJECT_SPEC.md` §4 once decided.
+7. Once architecture is settled and mockup scope feels sufficient: fold "grown beyond spec" items (including WBS grouping) into `PROJECT_SPEC.md`, then start the real build.
