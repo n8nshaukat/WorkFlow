@@ -188,10 +188,14 @@ input,select,textarea{font:inherit; color:inherit;}
 .row.resource-row{height:44px;}
 
 .bar{position:absolute; top:6px; height:22px; border-radius:5px; cursor:grab; display:flex; align-items:center; overflow:hidden; box-shadow:var(--shadow); border:1px solid transparent; transition:box-shadow .1s; user-select:none; touch-action:none;}
-/* A phase/group-color accent, independent of status — status still owns the fill/border
-   inside (.bar-fill), this is just a consistent "which category does this belong to"
-   stripe so a task's group tie stays visible no matter its status. */
-.bar{border-left:3px solid var(--phase-c, var(--line-strong));}
+/* A translucent phase/group-color wash over the status fill — not a border, and lighter
+   than the phase/group's own header bar (that one is solid var(--phase-c)) — "the bar
+   should follow the header, just less opaque" was the explicit ask. Sits above bar-fill/
+   bar-track, below bar-label. mix-blend-mode:multiply lets the status color and the wash
+   read as one blended tint instead of a flat color sitting on top obscuring it. */
+.bar-phase-wash{position:absolute; inset:0; background:var(--phase-c, transparent); opacity:.22; mix-blend-mode:multiply; pointer-events:none;}
+:root[data-theme="dark"] .bar-phase-wash{mix-blend-mode:screen; opacity:.28;}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .bar-phase-wash{mix-blend-mode:screen; opacity:.28;} }
 .bar:active{cursor:grabbing;}
 .bar:hover{box-shadow:0 10px 20px -10px rgba(0,0,0,.35);}
 .bar-fill{position:absolute; inset:0; border-radius:5px;}

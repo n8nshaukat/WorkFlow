@@ -1,7 +1,7 @@
 /* Bump this by hand on every publish — the artifact platform's own version id isn't
    readable from page JS, so this is the only way the running page can say which build
    it is when reporting back on testing. */
-const BUILD_INFO='v42 · 2026-09-29';
+const BUILD_INFO='v43 · 2026-09-29';
 const ROW_H=34, PHASE_H=32, RES_H=44;
 const PX={day:36, week:13, month:4.5};
 const TODAY=D('2027-03-24');
@@ -951,9 +951,13 @@ function renderGantt(){
       const left=(it.start-rangeStart)*pxPerDay, width=Math.max((it.end-it.start)*pxPerDay,10);
       const bar=document.createElement('div'); bar.className='bar status-'+it.status+(selected?' selected':''); bar.dataset.taskId=it.id;
       bar.style.left=left+'px'; bar.style.width=width+'px'; bar.style.setProperty('--phase-c', r.phase.color);
+      // .bar-phase-wash sits on top of the status fill but under the label — status still
+      // owns the bar's base look (this was a deliberate, user-confirmed decision), the wash
+      // just adds a translucent tint of the task's own phase/group color over it, so a
+      // colored task visibly "belongs" to its phase/group without competing with status.
       bar.innerHTML=(it.status==='progress'
         ? `<div class="bar-track"></div><div class="bar-progress" style="width:${it.pct}%"></div>`
-        : `<div class="bar-fill"></div>`)+`<span class="bar-label">${it.name}</span><div class="bar-handle left"></div><div class="bar-handle right"></div>`;
+        : `<div class="bar-fill"></div>`)+`<div class="bar-phase-wash"></div><span class="bar-label">${it.name}</span><div class="bar-handle left"></div><div class="bar-handle right"></div>`;
       tl.appendChild(bar);
       attachBarDrag(bar,it,pxPerDay);
       attachResizeHandle(bar.querySelector('.bar-handle.left'),it,'left',pxPerDay);
