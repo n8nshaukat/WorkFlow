@@ -1,6 +1,6 @@
 # WORKFLOW - LIVING PROJECT STATE
-**Version:** 0.9
-**Last Updated:** 2026-09-29
+**Version:** 0.10
+**Last Updated:** 2026-10-12
 **Auto-Update:** Every session close
 
 ---
@@ -9,7 +9,7 @@
 
 **Read this file first.** Then, only if you need deeper context:
 - `docs/PROJECT_SPEC.md` §3 (MVP scope) — the mockup covers it, plus more (see "Scope Grown Beyond Spec" below).
-- `docs/LESSONS_LEARNED.md` — skim headers, don't read in full. LL-013/LL-014/LL-015 (this session's CSS-positioning bugs: hit-area/z-index conflicts, a stale hardcoded pixel value, `position:sticky` failing again after already being "fixed" once) before touching drag hit-areas, anything computing pixel offsets from `--label-w`, or anything relying on `position:sticky`. LL-007–LL-009 and LL-011 before touching drag/CSS-positioning code generally or restructuring a function with an early exit. LL-010/LL-012 before hand-editing `app.js`/`style.css` together.
+- `docs/LESSONS_LEARNED.md` — skim headers, don't read in full. LL-013/LL-014/LL-015 (CSS-positioning bugs: hit-area/z-index conflicts, a stale hardcoded pixel value, `position:sticky` failing again after already being "fixed" once) before touching drag hit-areas, anything computing pixel offsets from `--label-w`, or anything relying on `position:sticky`. LL-007–LL-009 and LL-011 before touching drag/CSS-positioning code generally or restructuring a function with an early exit. LL-010/LL-012 before hand-editing `app.js`/`style.css` together. LL-016 (check `df -h` before assuming an `ENOSPC`/odd file-read failure is a tool bug) before troubleshooting any local CLI (Netlify, npm, git) that fails strangely inside this Drive-synced folder.
 
 **The interactive mockup is the current source of truth for UX decisions**, not this doc's prose:
 **https://claude.ai/artifact/VG8GFdUXphmBCDqUa9sSgv** — currently **v46**, matches the in-app build tag (sidebar, bottom-left). **A source snapshot lives in this repo at `mockup/`** (same 5 files as the live artifact) — edits are made there first, then published to the artifact.
@@ -19,12 +19,14 @@
 **Known unresolved (platform-level, not a code bug):** the "sample" (AI-interpret) capability is stuck `not_granted` in the user's browser for this artifact — affects the AI-interpret fallback for unstructured pasted text and non-deterministic PDF imports. Deterministic WBS-table parsing, Excel/CSV, and the deterministic resource-file pattern all work without it. Worth asking the user to retry (different browser/incognito) before assuming it's still stuck.
 
 **Immediate next actions, in order:**
-1. **User verifies v46 in an actual browser** — specifically: the Transfers/POB freeze (scroll down with both shown, they should now stay pinned — rebuilt without `position:sticky`, see LL-015), the reorder-vs-group drag split, and the Dashboard tab's numbers against a real schedule.
-2. If the user's real schedule PDF's full extracted text becomes available: it's a **Gantt/timeline-view export** (not the WBS/Duration/Start/Finish table format the deterministic parser handles) — build a dedicated parser for it. Deferred until then per LL-006's discipline (don't guess a format from a preview).
-3. **Resolve the open distribution/architecture decision** (below) before starting any real Supabase/Netlify/Electron work — a rough Electron size/cost estimate was given this session (see that section) but nothing decided yet.
-4. Share the mockup with coworkers via **email invite** (resolved as the right approach, not yet actually done — see "Sharing with Coworkers" below).
-5. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
-6. Fold "Scope Grown Beyond Spec" (below) into `PROJECT_SPEC.md` once the mockup phase feels done.
+1. **Clear space on the H: drive (Google Drive sync mount) — it's completely full (0 bytes free as of 2026-10-12), see LL-016.** Blocks the Netlify CLI and likely any other local build/deploy tooling until resolved; nothing in "External Stakeholder Review Hosting" below can proceed until this is cleared.
+2. **User verifies v46 in an actual browser** — specifically: the Transfers/POB freeze (scroll down with both shown, they should now stay pinned — rebuilt without `position:sticky`, see LL-015), the reorder-vs-group drag split, and the Dashboard tab's numbers against a real schedule.
+3. If the user's real schedule PDF's full extracted text becomes available: it's a **Gantt/timeline-view export** (not the WBS/Duration/Start/Finish table format the deterministic parser handles) — build a dedicated parser for it. Deferred until then per LL-006's discipline (don't guess a format from a preview).
+4. **Resolve the open distribution/architecture decision** (below) before starting any real Supabase/Netlify/Electron work — a rough Electron size/cost estimate was given this session (see that section) but nothing decided yet.
+5. Share the mockup with coworkers via **email invite** (resolved as the right approach, not yet actually done — see "Sharing with Coworkers" below).
+6. Once drive space is free: set up the new, separate Netlify account and deploy `mockup/` as the external-stakeholder review copy — see "External Stakeholder Review — Hosting & Access" below.
+7. Decide whether "↺ Load demo data" (sidebar) survives to real launch, or comes out once the app is live.
+8. Fold "Scope Grown Beyond Spec" (below) into `PROJECT_SPEC.md` once the mockup phase feels done.
 
 ---
 
@@ -84,6 +86,16 @@ Near-term goal: internal use, side project, not monetized — each coworker uses
 
 ---
 
+## External Stakeholder Review — Hosting & Access (decided 2026-10-12, not yet built)
+
+Second audience, distinct from "Sharing with Coworkers" above: external project stakeholders (contractors/reps across 2-3 companies, NDA-authorized) reviewing the **real** schedule, view/comment only — not internal coworkers test-driving the app with demo data.
+
+**Decided:** deploy `mockup/` to Netlify under a **new, separate account** — independent of SAL Operations' Netlify, the company Google Workspace, and any future production deployment (different codebase). Rationale: still the user's own side project, not company-adopted; keeping it separate avoids IT sign-off and keeps ownership unambiguous. Netlify free-tier limits pool per *account*, not per site, so this must be a real separate account to get its own allotment. Google Drive ruled out (doesn't execute HTML/JS — would just force-download or show source). Google Apps Script Web App considered and declined (reintroduces a pattern WorkFlow's spec already moved away from, plus likely CSP conflicts with the app's CDN scripts). Page content can be fully SAL Consulting-branded; the hosting domain/chrome cannot be (a claude.ai link always shows as claude.ai) — a real custom domain needs this actual separate deployment.
+
+**Still open:** site access mechanism (shared password vs. per-person login — password suggested as the simpler default); whether the review copy is read-only or keeps full interactivity (moot either way for persistence — a static Netlify deploy has no `db` capability, so edits won't survive a refresh regardless); and the multi-company NDA structure (multi-party vs. bilateral — bilateral would mean a single shared stakeholder group could over-expose one company's data to another, worth the user confirming). A running access log (who/company/agreement/which artifacts) was proposed, not yet built.
+
+---
+
 ## Open Decision: Distribution & Backend Architecture
 
 **Not yet committed — resolve before any real build work starts.**
@@ -116,14 +128,17 @@ Came from user feedback during mockup iteration, not `PROJECT_SPEC.md`'s origina
 - **2026-09-26:** WBS grouping — standalone prototype → approved → built into the real Gantt across three rounds. See LL-010. Mockup → v35.
 - **2026-09-28:** Source snapshot checked into repo (`mockup/`). Real PDF-import crash fixed (LL-011). Resource-aware import + theme toggle built. Mockup → v37.
 - **2026-09-29 (session 1):** Blank-by-default boot; dark-mode chip contrast fixed (LL-012); PDF-import complaint diagnosed to two root causes (Gantt-view PDF format + stuck AI permission). Mockup → v39.
-- **2026-09-29 (session 2, this session):** Large UX feedback batch across several rounds — undo/redo, clear-all-data, drag-to-reorder (redesigned twice — see below), resize-handle/link-knob conflict (found + fixed twice — LL-013, then moved knobs to bottom corners), Transfers/POB freeze (rebuilt from `position:sticky` to a non-sticky frozen container after sticky failed again — LL-015), theme toggle visibility, milestone toggle in the edit drawer, Task/Phase + per-column resize, phase color click-to-set/reset (+ now washes onto task bars, not just swatches), demo-data anonymization (real field/vendor/personal names → fictional), dependency-arrow display bugs found and fixed (phase-collapse not re-anchoring; a stale hardcoded `280px` — LL-014), Dashboard/Analytics built first as a standalone prototype then integrated as a real 5th tab wired to live data (v45), grouping/reordering redesigned for consistency (drag-onto-task always reorders now). See LL-013–LL-015. Mockup → **v46**. Also scoped (not built) what a standalone Electron/Tauri build would cost in setup, effort, and installer size.
+- **2026-09-29 (session 2):** Large UX feedback batch across several rounds — undo/redo, clear-all-data, drag-to-reorder (redesigned twice — see below), resize-handle/link-knob conflict (found + fixed twice — LL-013, then moved knobs to bottom corners), Transfers/POB freeze (rebuilt from `position:sticky` to a non-sticky frozen container after sticky failed again — LL-015), theme toggle visibility, milestone toggle in the edit drawer, Task/Phase + per-column resize, phase color click-to-set/reset (+ now washes onto task bars, not just swatches), demo-data anonymization (real field/vendor/personal names → fictional), dependency-arrow display bugs found and fixed (phase-collapse not re-anchoring; a stale hardcoded `280px` — LL-014), Dashboard/Analytics built first as a standalone prototype then integrated as a real 5th tab wired to live data (v45), grouping/reordering redesigned for consistency (drag-onto-task always reorders now). See LL-013–LL-015. Mockup → **v46**. Also scoped (not built) what a standalone Electron/Tauri build would cost in setup, effort, and installer size.
+- **2026-10-12 (planning only, no code/mockup changes):** Worked through how to share the mockup with external, multi-company project stakeholders who need to review **real** project data (not the demo) — settled on a separate Netlify account/deploy of `mockup/`, kept independent of both the company Google Workspace and SAL Operations' existing Netlify account; ruled out Google Drive (can't execute HTML/JS) and Apps Script (deliberately, matches an already-made architecture decision); clarified branding is only possible at the content level, not the hosting domain. Flagged a real access-governance question (multi-party vs. bilateral NDAs across the stakeholder companies) for the user to confirm. Found the H: drive completely full, blocking the Netlify CLI (LL-016) — real blocker for next session. See "External Stakeholder Review — Hosting & Access" above.
 
 ---
 
 ## Next Steps
 
-1. User verifies v46 in a real browser (see "Immediate next actions" above for the specific things to check).
-2. Get the Gantt-view schedule PDF's full extracted text when available; build its dedicated parser.
-3. Get an explicit hosted-vs-standalone decision (evidence + this session's Electron/Tauri sizing still leans hosted for the coworker-sharing use case).
-4. Send the coworker email invites.
-5. Once architecture is settled and mockup scope feels sufficient: fold "Scope Grown Beyond Spec" into `PROJECT_SPEC.md`, then start the real build.
+1. Clear H: drive space (blocking, see LL-016) — then set up the new Netlify account and deploy `mockup/` for stakeholder review.
+2. User verifies v46 in a real browser (see "Immediate next actions" above for the specific things to check).
+3. Get the Gantt-view schedule PDF's full extracted text when available; build its dedicated parser.
+4. Get an explicit hosted-vs-standalone decision (evidence + the Electron/Tauri sizing still leans hosted for the coworker-sharing use case).
+5. Send the coworker email invites.
+6. Confirm the multi-company NDA structure (multi-party vs. bilateral) before finalizing the shared stakeholder access group.
+7. Once architecture is settled and mockup scope feels sufficient: fold "Scope Grown Beyond Spec" into `PROJECT_SPEC.md`, then start the real build.
